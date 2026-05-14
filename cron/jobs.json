@@ -1,0 +1,172 @@
+{
+  "jobs": [
+    {
+      "id": "d8af5b20e433",
+      "name": "Fun Fact Malam Hari",
+      "prompt": "Berikan satu fun fact atau informasi menarik yang unik, baru, dan belum pernah disampaikan sebelumnya untuk Tuan Zhafif. Pastikan setiap hari faktanya berbeda dan tidak diulang.",
+      "skills": [],
+      "skill": null,
+      "model": "gemini-3.1",
+      "provider": "gemini",
+      "base_url": null,
+      "script": null,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 21 * * *",
+        "display": "0 21 * * *"
+      },
+      "schedule_display": "0 21 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 12
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-02T02:19:30.025092+07:00",
+      "next_run_at": "2026-05-14T21:00:00+07:00",
+      "last_run_at": "2026-05-12T21:35:41.901947+07:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "7dfcecc77971",
+      "name": "daily_inspiration",
+      "prompt": "Kirimkan satu kata-kata bijak atau pesan penyemangat singkat untuk Tuan Zhafif Raditya H. dalam bahasa Indonesia.",
+      "skills": [],
+      "skill": null,
+      "model": "gemini-3.1",
+      "provider": "gemini",
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 15 * * *",
+        "display": "0 15 * * *"
+      },
+      "schedule_display": "0 15 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 6
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-12T20:44:15.858432+07:00",
+      "next_run_at": "2026-05-15T15:00:00+07:00",
+      "last_run_at": "2026-05-14T15:01:00.268671+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Error code: 400 - [{'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'API_KEY_INVALID', 'domain': 'googleapis.com', 'metadata': {'service': 'generativelanguage.googleapis.com'}}, {'@type': 'type.googleapis.com/google.rpc.LocalizedMessage', 'locale': 'en-US', 'message': 'API key not valid. Please pass a valid API key.'}]}}]",
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "791ffbd9168f",
+      "name": "Reminder Progress Capstone & Kerja BSI UAD",
+      "prompt": "Tuan Zhafif, ini adalah pengingat harian Anda untuk segera melakukan:\n1. Laporan progress Capstone Project.\n2. Tugas Kerja BSI UAD.\nMohon segera dikerjakan dan update progressnya.",
+      "skills": [],
+      "skill": null,
+      "model": "gemini-3.1",
+      "provider": "gemini",
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 10 * * 1-5",
+        "display": "0 10 * * 1-5"
+      },
+      "schedule_display": "0 10 * * 1-5",
+      "repeat": {
+        "times": null,
+        "completed": 3
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-12T20:44:16.862433+07:00",
+      "next_run_at": "2026-05-15T10:00:00+07:00",
+      "last_run_at": "2026-05-13T10:08:05.039842+07:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "e9548bb82b3c",
+      "name": "Reminder Webinar Hacker: From Idea To Code",
+      "prompt": "Tuan Zhafif, ini adalah pengingat untuk mengikuti Webinar 'Hacker / From Idea To Code' hari ini. Acara segera dimulai!",
+      "skills": [],
+      "skill": null,
+      "model": "gemini-3.1",
+      "provider": "gemini",
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 18 20 5 *",
+        "display": "0 18 20 5 *"
+      },
+      "schedule_display": "0 18 20 5 *",
+      "repeat": {
+        "times": 1,
+        "completed": 0
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-12T21:41:43.396985+07:00",
+      "next_run_at": "2026-05-20T18:00:00+07:00",
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    }
+  ],
+  "updated_at": "2026-05-14T15:01:00.269212+07:00"
+}

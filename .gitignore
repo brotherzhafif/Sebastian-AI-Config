@@ -1,0 +1,51 @@
+# 1. Abaikan semua file dan folder secara default
+/*
+
+# 2. Izinkan file.gitignore ini sendiri untuk dilacak
+!.gitignore
+
+# 3. Izinkan file konfigurasi utama (NON-SENSITIF)
+!config.yaml
+!SOUL.md
+!AGENTS.md
+
+# 4. Izinkan folder memori dan isinya (*.md)
+!memories/
+memories/*
+!memories/*.md
+
+# 5. Izinkan folder skills dan semua sub-direktorinya
+!skills/
+skills/*
+!skills/**/
+!skills/**/*.md
+!skills/**/*.py
+!skills/**/*.yaml
+
+# 6. Izinkan folder cron (jadwal otomatis)
+!cron/
+cron/*
+!cron/*.json
+
+# 7. Izinkan folder hooks (jika ada script kustom)
+!hooks/
+hooks/*
+!hooks/**/
+
+# Izinkan File Costume
+!reset_sebastian.sh
+
+# ==========================================
+# KEAMANAN KRUSIAL: JANGAN PERNAH DIHAPUS
+# ==========================================
+# Pastikan file ini tetap terabaikan meski ada aturan di atas
+.env
+auth.json
+sessions/
+logs/
+cache/
+image_cache/
+images/
+*.db
+*.db-wal
+*.db-shm
