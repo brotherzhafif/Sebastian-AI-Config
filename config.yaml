@@ -293,7 +293,7 @@ tts:
   elevenlabs:
     voice_id: pNInz6obpgDQGcFmaJgB
     model_id: eleven_multilingual_v2
-    api_key: sk_ddde657820c2d1b601240f95dfd255f06fb78b5ec951f3d4
+    api_key: ${ELEVENLABS_API_KEY}
   openai:
     model: gpt-4o-mini-tts
     voice: alloy
