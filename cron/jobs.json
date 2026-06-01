@@ -6,8 +6,8 @@
       "prompt": "Berikan satu kutipan motivasi segar, strategi dari '48 Laws of Power', wawasan psikologis, prinsip stoicisme, atau pelajaran sejarah yang unik, baru, dan belum pernah disampaikan sebelumnya. Pastikan kutipannya berbeda dari \"Ketenangan sejati bukan tentang menghindari badai, melainkan belajar berlayar dalam badai. Fokus pada apa yang bisa kamu kendalikan: reaksimu terhadap situasi, bukan situasi itu sendiri. Inilah esensi Stoicisme untuk ketangguhan mental harian.\" atau \"Hadapilah tantangan hari ini dengan ketenangan. Fokuslah pada upaya dan tindakanmu, bukan pada hasil yang di luar kendalimu. Dalam penerimaan terdapat kekuatan sejati.\"",
       "skills": [],
       "skill": null,
-      "model": "gemini-2.5-flash",
-      "provider": "gemini",
+      "model": null,
+      "provider": null,
       "base_url": null,
       "script": null,
       "no_agent": false,
@@ -48,8 +48,8 @@
       "prompt": "Tuan Zhafif, ini adalah pengingat harian Anda untuk segera melakukan:\n1. Laporan progress Capstone P...\n2. Laporan progress Kerja BSI UAD (jika ada).\n\nJangan lupa untuk selalu menyertakan detail kemajuan yang spesifik dan target selanjutnya. Tetap semangat!",
       "skills": [],
       "skill": null,
-      "model": "gemini-2.5-flash",
-      "provider": "gemini",
+      "model": null,
+      "provider": null,
       "base_url": null,
       "script": null,
       "no_agent": false,
@@ -90,8 +90,8 @@
       "prompt": "Berikan satu fun fact atau informasi menarik yang unik, baru, dan belum pernah disampaikan sebelumnya. Berikan dalam bahasa Indonesia.",
       "skills": [],
       "skill": null,
-      "model": "gemini-2.5-flash",
-      "provider": "gemini",
+      "model": null,
+      "provider": null,
       "base_url": null,
       "script": null,
       "no_agent": false,
@@ -104,15 +104,15 @@
       "schedule_display": "0 21 * * *",
       "repeat": {
         "times": null,
-        "completed": 2
+        "completed": 3
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T21:11:16.377186+07:00",
-      "next_run_at": "2026-06-01T21:00:00+07:00",
-      "last_run_at": "2026-06-01T16:49:00.530000+07:00",
+      "next_run_at": "2026-06-02T21:00:00+07:00",
+      "last_run_at": "2026-06-01T21:00:24.226694+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -129,7 +129,7 @@
     {
       "id": "2a84b82bdb7c",
       "name": "daily-news-update",
-      "prompt": "Ambil beberapa berita utama dan ringkasan faktual, aktual, baru, dan nyata dari sumber terkemuka seperti Antara News atau Kompas, lalu rangkum dalam beberapa poin singkat yang mudah dibaca. Pastikan untuk mencantumkan sumber berita.",
+      "prompt": "Ambil beberapa berita utama dan ringkasan faktual, aktual, baru, dan nyata dari sumber terkemuka, lalu rangkum keseluruhan berita masing masing dalam beberapa poin singkat yang mudah dibaca. Pastikan untuk mencantumkan sumber berita.",
       "skills": [],
       "skill": null,
       "model": null,
@@ -172,5 +172,5 @@
       "workdir": null
     }
   ],
-  "updated_at": "2026-06-01T16:49:00.530524+07:00"
+  "updated_at": "2026-06-01T21:00:24.227243+07:00"
 }

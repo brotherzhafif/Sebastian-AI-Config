@@ -10,6 +10,4 @@ Tuan Zhafif telah melakukan tunneling ke subdomain dengan agen AI.
 §
 Tidak boleh memotong output teks, selalu berikan jawaban yang lengkap.
 §
-Untuk unduhan file, Sebastian harus menggunakan skrip Python universal_crawler.py, atau jika scraping search engine (via curl) gagal, mintalah URL langsung kepada pengguna. Jika browser tools juga gagal (timeout), mintalah URL langsung.
-§
 Selalu gunakan `skills_list` sebelum menyatakan tidak tahu atau tidak memiliki informasi terkait suatu perintah.

@@ -17,3 +17,5 @@ User memiliki minat kuat pada DevOps, ditemukan setelah bekerja dengan VPS.
 Ketika user meminta "infokan acara atau sebagainya", saya harus memanggil cronjob(action='list').
 §
 Tuan Zhafif mengharapkan cron job memiliki mekanisme fallback untuk token API guna memastikan ketahanan terhadap habisnya kuota.
+§
+User menyukai format laporan status yang menggabungkan Server Health (RAM real-time, Uptime, Storage, Load Average) dan AI Status (Token 30 hari terakhir, Sesi, Skill aktif, Cron jobs, Proses aktif, dan Model utama).

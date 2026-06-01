@@ -31,11 +31,59 @@ console.log(`🔑 Berhasil mendeteksi ${tokenPool.length} token API dari file .e
 
 let currentTokenIndex = 0;
 
-const queryGoogleAI = (payload, apiKey, index, requestedModel) => { 
-  return new Promise((resolve, reject) => {
+// FUNGSI UTAMA: Konversi format pesan OpenAI/Hermes ke Google AI Native Format
+const transformPayloadOpenAIToGoogle = (openAiBody) => {
+  const messages = openAiBody.messages || [];
+  
+  const contents = messages.map(msg => {
+    // Jika ada peran function/tool response dari Hermes setelah eksekusi terminal
+    if (msg.role === 'tool' || msg.role === 'function') {
+      return {
+        role: 'user',
+        parts: [{ functionResponse: { name: msg.name || "terminal", response: { output: msg.content } } }]
+      };
+    }
+
+    const parts = [];
+    if (msg.content) parts.push({ text: msg.content });
     
-    // Gunakan fallback jika Hermes tidak mengirimkan nama model secara eksplisit
+    // Jika Hermes mengirimkan balik instruksi asisten yang berisi tool_calls sebelumnya
+    if (msg.tool_calls) {
+      msg.tool_calls.forEach(tc => {
+        let args = {};
+        try { args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments; } catch(e){}
+        parts.push({
+          functionCall: { name: tc.function.name, args: args }
+        });
+      });
+    }
+
+    return {
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: parts
+    };
+  });
+
+  const googlePayload = { contents };
+
+  // Pemetaan Objek Tools (Function Declarations) dari Hermes langsung diteruskan ke Google!
+  if (openAiBody.tools) {
+    googlePayload.tools = [{
+      functionDeclarations: openAiBody.tools.map(t => ({
+        name: t.function.name,
+        description: t.function.description || "Execute system commands",
+        parameters: t.function.parameters
+      }))
+    }];
+  }
+
+  return JSON.stringify(googlePayload);
+};
+
+const queryGoogleAI = (openAiBody, apiKey, index, requestedModel) => { 
+  return new Promise((resolve, reject) => {
     const modelTarget = requestedModel || "gemini-3.5-flash"; 
+    const payload = transformPayloadOpenAIToGoogle(openAiBody);
 
     const options = {
       hostname: 'generativelanguage.googleapis.com',
@@ -64,14 +112,9 @@ const queryGoogleAI = (payload, apiKey, index, requestedModel) => {
             return reject({ type: 'GOOGLE_ERROR', message: jsonResponse.error.message });
           }
 
-          const aiReply = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          if (!aiReply || aiReply.trim().length === 0) {
-            return reject({ type: 'EMPTY_TEXT', message: 'Teks kosong dari hulu' });
-          }
-
-          resolve(aiReply);
+          resolve(jsonResponse);
         } catch (err) {
-          reject({ type: 'PARSE_ERROR', message: 'Gagal parsing JSON' });
+          reject({ type: 'PARSE_ERROR', message: 'Gagal parsing JSON dari hulu Google' });
         }
       });
     });
@@ -86,8 +129,6 @@ const handleChat = async (req, res) => {
   const messages = req.body.messages || [];
   const isStreamRequested = req.body.stream === true;
   const maxTokensRequested = req.body.max_tokens || 9999;
-  
-  // 1. Tangkap model dinamis dari Hermes (contoh: gemini-3.5-flash atau fallback-nya)
   const requestedModel = req.body.model || "gemini-3.5-flash"; 
   const chunkId = `chatcmpl-${Date.now()}`;
 
@@ -95,7 +136,7 @@ const handleChat = async (req, res) => {
     return res.json({ choices: [{ message: { role: 'assistant', content: 'Bridge aktif!' } }] });
   }
 
-  // === INTERSEPTOR TITLING SUPER AGRESIF (ANTI-WARNING) ===
+  // === INTERSEPTOR TITLING SUPER AGRESIF ===
   const lastMessageContent = messages[messages.length - 1].content || "";
   if (
     maxTokensRequested <= 30 || 
@@ -109,7 +150,7 @@ const handleChat = async (req, res) => {
       id: chunkId,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: requestedModel,
+      model: "gemini-3.5-flash",
       choices: [{
         index: 0,
         message: { role: 'assistant', content: "Sebastian Session" },
@@ -117,12 +158,6 @@ const handleChat = async (req, res) => {
       }]
     });
   }
-
-  const contents = messages.map(msg => ({
-    role: msg.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: msg.content || "" }]
-  }));
-  const payload = JSON.stringify({ contents });
 
   let attempts = 0;
   const maxAttempts = tokenPool.length; 
@@ -137,17 +172,80 @@ const handleChat = async (req, res) => {
     console.log(`[Round-Robin] Mencoba Token index ke-${activeIndex} untuk model ${requestedModel} (Attempt ${attempts}/${maxAttempts})`);
 
     try {
-      // 2. Oper 'requestedModel' ke fungsi queryGoogleAI agar endpoint path-nya dinamis
-      const aiReply = await queryGoogleAI(payload, activeApiKey, activeIndex, requestedModel);
-      console.log(`✅ Sukses memproses teks (${aiReply.length} karakter) via Token index ke-${activeIndex}. Stream Mode: ${isStreamRequested}`);
+      // Lempar seluruh request body OpenAI agar diproses dinamis beserta tools-nya
+      const googleRawResponse = await queryGoogleAI(req.body, activeApiKey, activeIndex, requestedModel);
+      
+      const candidate = googleRawResponse.candidates?.[0];
+      const part = candidate?.content?.parts?.[0];
 
+      // Jembatan mengecek apakah Google meminta fungsi pemanggilan Tool (Function Call)
+      const hasFunctionCall = part && part.functionCall;
+      const aiReply = part?.text || "";
+
+      if (!hasFunctionCall && (!aiReply || aiReply.trim().length === 0)) {
+        console.warn(`⚠️ Token index ke-${activeIndex} mengembalikan respons kosong hulu. Skip...`);
+        continue;
+      }
+
+      // 🛠️ STRATEGI TRANSLASI PEMANGGILAN TOOL JALUR STREAMING/NON-STREAMING 🛠️
+      if (hasFunctionCall) {
+        console.log(`🔧 [TOOL DETECTED] Google meminta eksekusi fungsi: ${part.functionCall.name}`);
+        
+        const openAiToolCalls = [{
+          id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          type: "function",
+          function: {
+            name: part.functionCall.name,
+            arguments: JSON.stringify(part.functionCall.args || {})
+          }
+        }];
+
+        if (isStreamRequested) {
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+
+          const streamPayload = {
+            id: chunkId,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: requestedModel,
+            choices: [{ index: 0, delta: { role: "assistant", tool_calls: openAiToolCalls }, finish_reason: null }]
+          };
+          res.write(`data: ${JSON.stringify(streamPayload)}\n\n`);
+          
+          const finalStreamPayload = {
+            id: chunkId,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: requestedModel,
+            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }]
+          };
+          res.write(`data: ${JSON.stringify(finalStreamPayload)}\n\n`);
+          res.write('data: [DONE]\n\n');
+          return res.end();
+        }
+
+        return res.json({
+          id: chunkId,
+          object: "chat.completion",
+          created: Math.floor(Date.now() / 1000),
+          model: requestedModel,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: null, tool_calls: openAiToolCalls },
+            finish_reason: "tool_calls"
+          }]
+        });
+      }
+
+      // JALUR CHAT BIASA (TIDAK MANGGIL TOOL)
       if (isStreamRequested) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
         const words = aiReply.match(/[\s\S]{1,4}/g) || [aiReply];
-        
         for (const word of words) {
           const streamPayload = {
             id: chunkId,
@@ -157,7 +255,7 @@ const handleChat = async (req, res) => {
             choices: [{ index: 0, delta: { content: word }, finish_reason: null }]
           };
           res.write(`data: ${JSON.stringify(streamPayload)}\n\n`);
-          await new Promise(r => setTimeout(r, 15));
+          await new Promise(r => setTimeout(r, 12));
         }
 
         const finalStreamPayload = {
@@ -172,7 +270,6 @@ const handleChat = async (req, res) => {
         return res.end();
       }
 
-      // Jalur Non-Stream (Blocking)
       return res.json({
         id: chunkId,
         object: "chat.completion",
@@ -198,12 +295,10 @@ const handleChat = async (req, res) => {
   return res.status(429).json({ error: 'Semua token limit harian' });
 };
 
-// === GLOBAL INTERCEPTOR ===
 app.use((req, res) => {
   if (req.method === 'POST') {
     return handleChat(req, res);
   } else {
-    // Tangkap rute model dinamis apa saja yang dicari background task Hermes
     return res.json({
       id: "gemini-3-flash-live",
       object: "model",
@@ -217,4 +312,4 @@ app.use((req, res) => {
   }
 });
 
-app.listen(8089, () => console.log('🚀 Hermes Live Bridge v7.3 (Clean Edition) aktif di http://localhost:8089'));
+app.listen(8089, () => console.log('🚀 Hermes Live Bridge v8.0 (Advanced Tool Calling) aktif di http://localhost:8089'));
