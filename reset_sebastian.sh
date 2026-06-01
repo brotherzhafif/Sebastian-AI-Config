@@ -28,6 +28,6 @@ sleep 1
 # Jalankan kembali server.cjs di latar belakang menggunakan nohup
 cd ~/.hermes
 nohup node server.cjs > bridge_output.log 2>&1 &
-echo "✓ Hermes Live Bridge v7.2 aktif kembali di latar belakang (localhost:8089)."
+echo "✓ Hermes Live Bridge v7.3 aktif kembali di latar belakang (localhost:8089)."
 
 echo "✨ Seluruh sistem telah segar kembali."

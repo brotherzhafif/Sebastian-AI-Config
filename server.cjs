@@ -31,14 +31,15 @@ console.log(`🔑 Berhasil mendeteksi ${tokenPool.length} token API dari file .e
 
 let currentTokenIndex = 0;
 
-const queryGoogleAI = (payload, apiKey, index) => {
+const queryGoogleAI = (payload, apiKey, index, requestedModel) => { 
   return new Promise((resolve, reject) => {
-    // Cukup ganti bagian 'path' di dalam objek options fungsi queryGoogleAI menjadi seperti ini:
-    const requestedModel = req.body.model || "gemini-3.5-flash"; // Mengambil tipe model dinamis dari Hermes
+    
+    // Gunakan fallback jika Hermes tidak mengirimkan nama model secara eksplisit
+    const modelTarget = requestedModel || "gemini-3.5-flash"; 
 
     const options = {
       hostname: 'generativelanguage.googleapis.com',
-      path: `/v1beta/models/${requestedModel}:generateContent?key=${apiKey}`, // <-- Sekarang nama model mengikuti request Hermes!
+      path: `/v1beta/models/${modelTarget}:generateContent?key=${apiKey}`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -84,22 +85,31 @@ const queryGoogleAI = (payload, apiKey, index) => {
 const handleChat = async (req, res) => {
   const messages = req.body.messages || [];
   const isStreamRequested = req.body.stream === true;
+  const maxTokensRequested = req.body.max_tokens || 9999;
+  
+  // 1. Tangkap model dinamis dari Hermes (contoh: gemini-3.5-flash atau fallback-nya)
+  const requestedModel = req.body.model || "gemini-3.5-flash"; 
   const chunkId = `chatcmpl-${Date.now()}`;
 
   if (messages.length === 0) {
     return res.json({ choices: [{ message: { role: 'assistant', content: 'Bridge aktif!' } }] });
   }
 
-  // === INTERSEPTOR TITLING (ANTI-WARNING) ===
-  // Cek apakah Hermes sedang meminta pembuatan judul otomatis (biasanya mengandung instruksi tersembunyi)
+  // === INTERSEPTOR TITLING SUPER AGRESIF (ANTI-WARNING) ===
   const lastMessageContent = messages[messages.length - 1].content || "";
-  if (lastMessageContent.toLowerCase().includes('title') || lastMessageContent.toLowerCase().includes('judul') || req.url.includes('v1main')) {
+  if (
+    maxTokensRequested <= 30 || 
+    lastMessageContent.toLowerCase().includes('title') || 
+    lastMessageContent.toLowerCase().includes('judul') ||
+    lastMessageContent.toLowerCase().includes('summarize this session') ||
+    req.url.includes('v1main')
+  ) {
     console.log('🤫 Mencegat request Auxiliary Title Generation. Mengirimkan judul tiruan aman...');
     return res.json({
       id: chunkId,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: "gemini-3-flash-live",
+      model: requestedModel,
       choices: [{
         index: 0,
         message: { role: 'assistant', content: "Sebastian Session" },
@@ -124,10 +134,11 @@ const handleChat = async (req, res) => {
     currentTokenIndex = (currentTokenIndex + 1) % tokenPool.length;
     attempts++;
 
-    console.log(`[Round-Robin] Mencoba Token index ke-${activeIndex} (Attempt ${attempts}/${maxAttempts})`);
+    console.log(`[Round-Robin] Mencoba Token index ke-${activeIndex} untuk model ${requestedModel} (Attempt ${attempts}/${maxAttempts})`);
 
     try {
-      const aiReply = await queryGoogleAI(payload, activeApiKey, activeIndex);
+      // 2. Oper 'requestedModel' ke fungsi queryGoogleAI agar endpoint path-nya dinamis
+      const aiReply = await queryGoogleAI(payload, activeApiKey, activeIndex, requestedModel);
       console.log(`✅ Sukses memproses teks (${aiReply.length} karakter) via Token index ke-${activeIndex}. Stream Mode: ${isStreamRequested}`);
 
       if (isStreamRequested) {
@@ -142,7 +153,7 @@ const handleChat = async (req, res) => {
             id: chunkId,
             object: "chat.completion.chunk",
             created: Math.floor(Date.now() / 1000),
-            model: "gemini-3-flash-live",
+            model: requestedModel,
             choices: [{ index: 0, delta: { content: word }, finish_reason: null }]
           };
           res.write(`data: ${JSON.stringify(streamPayload)}\n\n`);
@@ -153,7 +164,7 @@ const handleChat = async (req, res) => {
           id: chunkId,
           object: "chat.completion.chunk",
           created: Math.floor(Date.now() / 1000),
-          model: "gemini-3-flash-live",
+          model: requestedModel,
           choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
         };
         res.write(`data: ${JSON.stringify(finalStreamPayload)}\n\n`);
@@ -161,11 +172,12 @@ const handleChat = async (req, res) => {
         return res.end();
       }
 
+      // Jalur Non-Stream (Blocking)
       return res.json({
         id: chunkId,
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
-        model: "gemini-3-flash-live",
+        model: requestedModel,
         choices: [{
           index: 0,
           message: { role: 'assistant', content: aiReply },
@@ -205,4 +217,4 @@ app.use((req, res) => {
   }
 });
 
-app.listen(8089, () => console.log('🚀 Hermes Live Bridge v7.1 (Clean Edition) aktif di http://localhost:8089'));
+app.listen(8089, () => console.log('🚀 Hermes Live Bridge v7.3 (Clean Edition) aktif di http://localhost:8089'));

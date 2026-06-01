@@ -227,10 +227,8 @@ auxiliary:
     timeout: 30
     extra_body: {}
   title_generation:
-    provider: gemini
-    model: gemini-3-flash-live
-    base_url: http://localhost:8089/v1
-    api_key: 'palsu-ga-masalah'
+    provider: auto
+    model: ''
     timeout: 30
     extra_body: {}
   triage_specifier:
