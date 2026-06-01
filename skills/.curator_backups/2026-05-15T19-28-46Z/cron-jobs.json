@@ -1,93 +1,9 @@
 {
   "jobs": [
     {
-      "id": "c30e4dc7b203",
-      "name": "Daily Wisdom",
-      "prompt": "Berikan satu kutipan motivasi segar, strategi dari '48 Laws of Power', wawasan psikologis, prinsip stoicisme, atau pelajaran sejarah yang unik, baru, dan belum pernah disampaikan sebelumnya. Pastikan kutipannya berbeda dari \"Ketenangan sejati bukan tentang menghindari badai, melainkan belajar berlayar dalam badai. Fokus pada apa yang bisa kamu kendalikan: reaksimu terhadap situasi, bukan situasi itu sendiri. Inilah esensi Stoicisme untuk ketangguhan mental harian.\" atau \"Hadapilah tantangan hari ini dengan ketenangan. Fokuslah pada upaya dan tindakanmu, bukan pada hasil yang di luar kendalimu. Dalam penerimaan terdapat kekuatan sejati.\"",
-      "skills": [],
-      "skill": null,
-      "model": "gemini-2.5-flash",
-      "provider": "gemini",
-      "base_url": null,
-      "script": null,
-      "no_agent": false,
-      "context_from": null,
-      "schedule": {
-        "kind": "cron",
-        "expr": "0 15 * * *",
-        "display": "0 15 * * *"
-      },
-      "schedule_display": "0 15 * * *",
-      "repeat": {
-        "times": null,
-        "completed": 21
-      },
-      "enabled": true,
-      "state": "scheduled",
-      "paused_at": null,
-      "paused_reason": null,
-      "created_at": "2026-05-14T16:01:06.660356+07:00",
-      "next_run_at": "2026-06-02T15:00:00+07:00",
-      "last_run_at": "2026-06-01T15:01:58.375955+07:00",
-      "last_status": "error",
-      "last_error": "RuntimeError: HTTP 429: Gemini HTTP 429 (RESOURCE_EXHAUSTED): Resource has been exhausted (e.g. check quota).",
-      "last_delivery_error": null,
-      "deliver": "origin",
-      "origin": {
-        "platform": "whatsapp",
-        "chat_id": "70729588568201@lid",
-        "chat_name": "Raja Zhafif Raditya H.",
-        "thread_id": null
-      },
-      "enabled_toolsets": null,
-      "workdir": null
-    },
-    {
-      "id": "c6da2108f662",
-      "name": "Reminder Progress Capstone & Kerja BSI UAD",
-      "prompt": "Tuan Zhafif, ini adalah pengingat harian Anda untuk segera melakukan:\n1. Laporan progress Capstone P...\n2. Laporan progress Kerja BSI UAD (jika ada).\n\nJangan lupa untuk selalu menyertakan detail kemajuan yang spesifik dan target selanjutnya. Tetap semangat!",
-      "skills": [],
-      "skill": null,
-      "model": "gemini-2.5-flash",
-      "provider": "gemini",
-      "base_url": null,
-      "script": null,
-      "no_agent": false,
-      "context_from": null,
-      "schedule": {
-        "kind": "cron",
-        "expr": "0 10 * * 1-5",
-        "display": "0 10 * * 1-5"
-      },
-      "schedule_display": "0 10 * * 1-5",
-      "repeat": {
-        "times": null,
-        "completed": 11
-      },
-      "enabled": true,
-      "state": "scheduled",
-      "paused_at": null,
-      "paused_reason": null,
-      "created_at": "2026-05-18T10:53:02.959780+07:00",
-      "next_run_at": "2026-06-02T10:00:00+07:00",
-      "last_run_at": "2026-06-01T10:00:50.775376+07:00",
-      "last_status": "ok",
-      "last_error": null,
-      "last_delivery_error": null,
-      "deliver": "origin",
-      "origin": {
-        "platform": "whatsapp",
-        "chat_id": "70729588568201@lid",
-        "chat_name": "Raja Zhafif Raditya H.",
-        "thread_id": null
-      },
-      "enabled_toolsets": null,
-      "workdir": null
-    },
-    {
-      "id": "ef10a2b80f35",
+      "id": "d70df605ae50",
       "name": "Fun Fact Malam Hari",
-      "prompt": "Berikan satu fun fact atau informasi menarik yang unik, baru, dan belum pernah disampaikan sebelumnya. Berikan dalam bahasa Indonesia.",
+      "prompt": "Berikan satu fun fact atau informasi menarik yang unik, baru, dan belum pernah disampaikan sebelumnya. Sajikan dalam bahasa Indonesia, dan pastikan tidak lebih dari 50 kata.",
       "skills": [],
       "skill": null,
       "model": "gemini-2.5-flash",
@@ -104,15 +20,15 @@
       "schedule_display": "0 21 * * *",
       "repeat": {
         "times": null,
-        "completed": 1
+        "completed": 4
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
-      "created_at": "2026-05-30T21:11:16.377186+07:00",
-      "next_run_at": "2026-06-01T21:00:00+07:00",
-      "last_run_at": "2026-05-31T13:19:51.844515+07:00",
+      "created_at": "2026-05-14T15:56:31.482307+07:00",
+      "next_run_at": "2026-05-16T21:00:00+07:00",
+      "last_run_at": "2026-05-15T21:00:45.968379+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -127,50 +43,131 @@
       "workdir": null
     },
     {
-      "id": "2a84b82bdb7c",
-      "name": "daily-news-update",
-      "prompt": "Ambil beberapa berita utama dan ringkasan faktual, aktual, baru, dan nyata dari sumber terkemuka seperti Antara News atau Kompas, lalu rangkum dalam beberapa poin singkat yang mudah dibaca. Pastikan untuk mencantumkan sumber berita.",
+      "id": "d0e1917469b3",
+      "name": "Reminder Progress Capstone & Kerja BSI UAD",
+      "prompt": "Tuan Zhafif, ini adalah pengingat harian Anda untuk segera melakukan:\n1. Laporan progress Capstone Project\n2. Laporan progress Kerja BSI UAD",
       "skills": [],
       "skill": null,
-      "model": null,
-      "provider": null,
+      "model": "gemini-2.5-flash",
+      "provider": "gemini",
       "base_url": null,
       "script": null,
       "no_agent": false,
       "context_from": null,
       "schedule": {
         "kind": "cron",
-        "expr": "0 7 * * *",
-        "display": "0 7 * * *"
+        "expr": "0 10 * * 1-5",
+        "display": "0 10 * * 1-5"
       },
-      "schedule_display": "0 7 * * *",
+      "schedule_display": "0 10 * * 1-5",
       "repeat": {
         "times": null,
-        "completed": 5
+        "completed": 2
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
-      "created_at": "2026-05-31T13:11:53.837144+07:00",
-      "next_run_at": "2026-06-02T07:00:00+07:00",
-      "last_run_at": "2026-06-01T11:07:19.210414+07:00",
+      "created_at": "2026-05-14T15:56:37.975115+07:00",
+      "next_run_at": "2026-05-18T10:00:00+07:00",
+      "last_run_at": "2026-05-15T10:00:39.059113+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
-      "deliver": "local,origin",
+      "deliver": "origin",
       "origin": {
         "platform": "whatsapp",
         "chat_id": "70729588568201@lid",
         "chat_name": "Raja Zhafif Raditya H.",
         "thread_id": null
       },
-      "enabled_toolsets": [
-        "web",
-        "search"
-      ],
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "2c90950d95e6",
+      "name": "Reminder Webinar Hacker: From Idea To Code",
+      "prompt": "Tuan Zhafif, ini adalah pengingat untuk mengikuti Webinar 'Hacker / From Idea To Code' hari ini. Acara dimulai pukul 18.00 WIB. Jangan sampai ketinggalan!",
+      "skills": [],
+      "skill": null,
+      "model": "gemini-2.5-flash",
+      "provider": "gemini",
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 18 20 5 *",
+        "display": "0 18 20 5 *"
+      },
+      "schedule_display": "0 18 20 5 *",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-14T15:57:54.988849+07:00",
+      "next_run_at": "2026-05-20T18:00:00+07:00",
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "c30e4dc7b203",
+      "name": "Daily Wisdom",
+      "prompt": "Berikan satu kutipan motivasi segar, strategi dari '48 Laws of Power', wawasan psikologis, prinsip stoicisme, atau filosofi filsafat (termasuk filsafat Muslim dan agama). Pastikan konten unik dan relevan untuk memberikan inspirasi harian. Sajikan dalam bahasa Indonesia, tidak lebih dari 50 kata.",
+      "skills": [],
+      "skill": null,
+      "model": "gemini-2.5-flash",
+      "provider": "gemini",
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 15 * * *",
+        "display": "0 15 * * *"
+      },
+      "schedule_display": "0 15 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 4
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-14T16:01:06.660356+07:00",
+      "next_run_at": "2026-05-16T15:00:00+07:00",
+      "last_run_at": "2026-05-15T16:31:37.020798+07:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
       "workdir": null
     }
   ],
-  "updated_at": "2026-06-01T15:01:58.376460+07:00"
+  "updated_at": "2026-05-15T21:00:45.968832+07:00"
 }

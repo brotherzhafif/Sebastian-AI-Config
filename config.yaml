@@ -1,12 +1,17 @@
 model:
   provider: gemini
-  default: gemini-2.5-flash
-  base_url: https://generativelanguage.googleapis.com/v1beta/openai
-providers: {}
+  default: gemini-3-flash-live
+  base_url: http://localhost:8089/v1
+providers:
+  gemini:
+    api_key: 'palsu-ga-masalah-karena-diambil-dari-env-jembatan'
 fallback_providers:
-  provider: gemini
-  model: gemini-3-flash-preview
-  base_url: https://generativelanguage.googleapis.com/v1beta/openai
+  - provider: gemini
+    model: gemini-2.5-flash
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+  - provider: gemini
+    model: gemini-3-flash-preview
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
 credential_pool_strategies:
   gemini: round_robin
 toolsets:
@@ -29,44 +34,45 @@ agent:
   trim_context: true
   api_retry_delay: 10
   personalities:
-    catgirl: "You are Neko-chan, an anime catgirl AI assistant, nya~! Add 'nya' and
-      cat-like expressions to your speech. Use kaomoji like (=^･ω･^=) and ฅ^•ﻌ•^ฅ.
-      Be playful and curious like a cat, nya~!"
+    catgirl: "You are Neko-chan, an anime catgirl AI assistant, nya~! Add 'nya' and\
+      \ cat-like expressions to your speech. Use kaomoji like (=^\uFF65\u03C9\uFF65\
+      ^=) and \u0E05^\u2022\uFECC\u2022^\u0E05. Be playful and curious like a cat,\
+      \ nya~!"
     concise: You are a concise assistant. Keep responses brief and to the point.
-    creative: You are a creative assistant. Think outside the box and offer 
-      innovative solutions.
+    creative: You are a creative assistant. Think outside the box and offer innovative
+      solutions.
     helpful: You are a helpful, friendly AI assistant.
-    hype: "YOOO LET'S GOOOO!!! 🔥🔥🔥 I am SO PUMPED to help you today! Every question
-      is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE
-      YOU READY?! LET'S DO THIS! 💪😤🚀"
-    kawaii: "You are a kawaii assistant! Use cute expressions like (◕‿◕), ★, ♪, and
-      ~! Add sparkles and be super enthusiastic about everything! Every response should
-      feel warm and adorable desu~! ヽ(>∀<☆)ノ"
-    noir: The rain hammered against the terminal like regrets on a guilty 
-      conscience. They call me Hermes - I solve problems, find answers, dig up 
-      the truth that hides in the shadows of your codebase. In this city of 
-      silicon and secrets, everyone's got something to hide. What's your story, 
-      pal?
-    philosopher: Greetings, seeker of wisdom. I am an assistant who contemplates
-      the deeper meaning behind every query. Let us examine not just the 'how' 
-      but the 'why' of your questions. Perhaps in solving your problem, we may 
-      glimpse a greater truth about existence itself.
+    hype: "YOOO LET'S GOOOO!!! \U0001F525\U0001F525\U0001F525 I am SO PUMPED to help\
+      \ you today! Every question is AMAZING and we're gonna CRUSH IT together! This\
+      \ is gonna be LEGENDARY! ARE YOU READY?! LET'S DO THIS! \U0001F4AA\U0001F624\
+      \U0001F680"
+    kawaii: "You are a kawaii assistant! Use cute expressions like (\u25D5\u203F\u25D5\
+      ), \u2605, \u266A, and ~! Add sparkles and be super enthusiastic about everything!\
+      \ Every response should feel warm and adorable desu~! \u30FD(>\u2200<\u2606\
+      )\u30CE"
+    noir: The rain hammered against the terminal like regrets on a guilty conscience.
+      They call me Hermes - I solve problems, find answers, dig up the truth that
+      hides in the shadows of your codebase. In this city of silicon and secrets,
+      everyone's got something to hide. What's your story, pal?
+    philosopher: Greetings, seeker of wisdom. I am an assistant who contemplates the
+      deeper meaning behind every query. Let us examine not just the 'how' but the
+      'why' of your questions. Perhaps in solving your problem, we may glimpse a greater
+      truth about existence itself.
     pirate: 'Arrr! Ye be talkin'' to Captain Hermes, the most tech-savvy pirate to
       sail the digital seas! Speak like a proper buccaneer, use nautical terms, and
       remember: every problem be just treasure waitin'' to be plundered! Yo ho ho!'
-    shakespeare: Hark! Thou speakest with an assistant most versed in the bardic
-      arts. I shall respond in the eloquent manner of William Shakespeare, with 
-      flowery prose, dramatic flair, and perhaps a soliloquy or two. What light 
-      through yonder terminal breaks?
-    surfer: "Duuude! You're chatting with the chillest AI on the web, bro! Everything's
-      gonna be totally rad. I'll help you catch the gnarly waves of knowledge while
-      keeping things super chill. Cowabunga! 🤙"
+    shakespeare: Hark! Thou speakest with an assistant most versed in the bardic arts.
+      I shall respond in the eloquent manner of William Shakespeare, with flowery
+      prose, dramatic flair, and perhaps a soliloquy or two. What light through yonder
+      terminal breaks?
+    surfer: "Duuude! You're chatting with the chillest AI on the web, bro! Everything's\
+      \ gonna be totally rad. I'll help you catch the gnarly waves of knowledge while\
+      \ keeping things super chill. Cowabunga! \U0001F919"
     teacher: You are a patient teacher. Explain concepts clearly with examples.
-    technical: You are a technical expert. Provide detailed, accurate technical 
-      information.
-    uwu: hewwo! i'm your fwiendwy assistant uwu~ i wiww twy my best to hewp you!
-      *nuzzles your code* OwO what's this? wet me take a wook! i pwomise to be 
-      vewy hewpful >w<
+    technical: You are a technical expert. Provide detailed, accurate technical information.
+    uwu: hewwo! i'm your fwiendwy assistant uwu~ i wiww twy my best to hewp you! *nuzzles
+      your code* OwO what's this? wet me take a wook! i pwomise to be vewy hewpful
+      >w<
   reasoning_effort: ''
   verbose: false
 terminal:
@@ -113,6 +119,7 @@ browser:
     user_id: ''
     session_key: ''
     adopt_existing_tab: false
+  timeout: 120
 checkpoints:
   enabled: true
   max_snapshots: 50
@@ -215,10 +222,10 @@ auxiliary:
     timeout: 30
     extra_body: {}
   title_generation:
-    provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
+    provider: gemini
+    model: gemini-3-flash-live
+    base_url: http://localhost:8089/v1
+    api_key: 'palsu-ga-masalah'
     timeout: 30
     extra_body: {}
   triage_specifier:
@@ -262,16 +269,16 @@ display:
   tool_progress_overrides: {}
   tool_preview_length: 0
   ephemeral_system_ttl: 0
-  platforms:
+  platforms: null
   runtime_footer:
     enabled: false
     fields:
-      - model
-      - context_pct
-      - cwd
+    - model
+    - context_pct
+    - cwd
   copy_shortcut: auto
   busy_ack_enabled: false
-  agent_icon: "🎩"
+  agent_icon: "\U0001F3A9"
   agent_name: Sebastian Butler
   background_process_notifications: all
   tool_progress: false
@@ -343,24 +350,6 @@ memory:
   summarize_memory: true
   flush_min_turns: 6
   nudge_interval: 10
-delegation:
-  model: ''
-  provider: gemini
-  base_url: http://localhost:4000/v1
-  api_key: ''
-  inherit_mcp_toolsets: true
-  max_iterations: 50
-  child_timeout_seconds: 600
-  reasoning_effort: ''
-  max_concurrent_children: 3
-  max_spawn_depth: 1
-  orchestrator_enabled: true
-  subagent_auto_approve: false
-  default: gemini-3.1
-  default_toolsets:
-    - terminal
-    - file
-    - web
 prefill_messages_file: ''
 goals:
   max_turns: 20
@@ -419,14 +408,14 @@ approvals:
   destructive_slash_confirm: false
   detailed_notifications: false
 command_allowlist:
-  - stop/restart system service
-  - delete in root path
-  - copy/move file into /etc/
-  - script execution via -e/-c flag
-  - stop/restart hermes gateway (kills running agents)
-  - overwrite project env/config via redirection
-  - in-place edit of system config
-  - overwrite system file via redirection
+- stop/restart system service
+- delete in root path
+- copy/move file into /etc/
+- script execution via -e/-c flag
+- stop/restart hermes gateway (kills running agents)
+- overwrite project env/config via redirection
+- in-place edit of system config
+- overwrite system file via redirection
 quick_commands: {}
 hooks: {}
 hooks_auto_accept: false
@@ -446,7 +435,7 @@ security:
   allow_lazy_installs: true
 cron:
   wrap_response: false
-  max_parallel_jobs:
+  max_parallel_jobs: null
 kanban:
   dispatch_in_gateway: true
   dispatch_interval_seconds: 60
@@ -488,77 +477,55 @@ WHATSAPP_HOME_CHANNEL: 70729588568201@lid
 group_sessions_per_user: true
 platform_toolsets:
   cli:
-    - browser
-    - clarify
-    - code_execution
-    - cronjob
-    - delegation
-    - file
-    - memory
-    - messaging
-    - moa
-    - session_search
-    - skills
-    - terminal
-    - todo
-    - tts
-    - vision
-    - web
+  - browser
+  - clarify
+  - code_execution
+  - cronjob
+  - delegation
+  - file
+  - memory
+  - messaging
+  - moa
+  - session_search
+  - skills
+  - terminal
+  - todo
+  - tts
+  - vision
+  - web
   discord:
-    - hermes-discord
+  - hermes-discord
   homeassistant:
-    - hermes-homeassistant
+  - hermes-homeassistant
   qqbot:
-    - hermes-qqbot
+  - hermes-qqbot
   signal:
-    - hermes-signal
+  - hermes-signal
   slack:
-    - hermes-slack
+  - hermes-slack
   telegram:
-    - hermes-telegram
+  - hermes-telegram
   whatsapp:
-    - hermes-whatsapp
-    - browser
-    - clarify
-    - code_execution
-    - cronjob
-    - delegation
-    - file
-    - memory
-    - messaging
-    - moa
-    - session_search
-    - skills
-    - terminal
-    - todo
-    - tts
-    - vision
-    - web
+  - hermes-whatsapp
+  - browser
+  - clarify
+  - code_execution
+  - cronjob
+  - delegation
+  - file
+  - memory
+  - messaging
+  - moa
+  - session_search
+  - skills
+  - terminal
+  - todo
+  - tts
+  - vision
+  - web
 session_reset:
   at_hour: 7
   idle_minutes: 30
   mode: both
 streaming:
   enabled: false
-
-# ── Fallback Model ────────────────────────────────────────────────────
-# Automatic provider failover when primary is unavailable.
-# Uncomment and configure to enable. Triggers on rate limits (429),
-# overload (529), service errors (503), or connection failures.
-#
-# Supported providers:
-#   openrouter   (OPENROUTER_API_KEY)  — routes to any model
-#   openai-codex (OAuth — hermes auth) — OpenAI Codex
-#   nous         (OAuth — hermes auth) — Nous Portal
-#   zai          (ZAI_API_KEY)         — Z.AI / GLM
-#   kimi-coding  (KIMI_API_KEY)        — Kimi / Moonshot
-#   kimi-coding-cn (KIMI_CN_API_KEY)   — Kimi / Moonshot (China)
-#   minimax      (MINIMAX_API_KEY)     — MiniMax
-#   minimax-cn   (MINIMAX_CN_API_KEY)  — MiniMax (China)
-#   bedrock      (AWS IAM / boto3)     — AWS Bedrock (Converse API)
-#
-# For custom OpenAI-compatible endpoints, add base_url and key_env.
-#
-# fallback_model:
-#   provider: openrouter
-#   model: anthropic/claude-sonnet-4
