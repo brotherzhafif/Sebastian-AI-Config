@@ -8,6 +8,7 @@
 !config.yaml
 !SOUL.md
 !AGENTS.md
+!server.cjs
 
 # 4. Izinkan folder memori dan isinya (*.md)
 !memories/
