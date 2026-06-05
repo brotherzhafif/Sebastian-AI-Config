@@ -22,7 +22,6 @@ const https = require('https');
 require('dotenv').config();
 
 const app = express();
-app.use(express.json());
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -33,25 +32,79 @@ app.use((req, res, next) => {
 });
 
 let tokenPool = [];
-if (process.env.GEMINI_API_KEY) tokenPool.push(process.env.GEMINI_API_KEY);
-if (process.env.GOOGLE_API_KEY) tokenPool.push(process.env.GOOGLE_API_KEY);
+const thoughtSignatureCache = new Map();
+const sessionTokenMap = new Map(); // Sinkronisasi token agar mengikat per turn chat (Sticky Session)
 
+// =========================================================================
+// 🔑 STRATEGI PARSING TOKEN CERDAS (Mendukung Format Lama AIzaSy & Baru AQ.Ab8)
+// =========================================================================
+
+// 1. Ambil manual dari variabel penamaan standar utama jika tervalidasi panjang
+const explicitKeys = ['GEMINI_API_KEY', 'GOOGLE_API_KEY'];
+explicitKeys.forEach(key => {
+  const value = process.env[key];
+  if (value && value.trim().length > 25) {
+    tokenPool.push(value.trim());
+  }
+});
+
+// 2. Scan otomatis seluruh key .env yang mengandung kata GOOGLE / GEMINI
 Object.keys(process.env).forEach(key => {
   if ((key.includes('GEMINI') || key.includes('GOOGLE')) && !key.includes('URL')) {
     const value = process.env[key];
-    if (value && value.length > 20 && !tokenPool.includes(value)) {
-      tokenPool.push(value);
+    if (value && typeof value === 'string') {
+      const trimmedValue = value.trim();
+      // Validasi: Panjang karakter harus masuk akal (>25) & bukan string konfigurasi nama model
+      if (
+        trimmedValue.length > 25 && 
+        !trimmedValue.toLowerCase().includes('gemini-') && 
+        !tokenPool.includes(trimmedValue)
+      ) {
+        tokenPool.push(trimmedValue);
+      }
     }
   }
 });
 
+// 3. Fallback jika dideklarasikan via daftar koma massal
 if (tokenPool.length === 0 && process.env.GEMINI_API_KEYS) {
-  tokenPool = process.env.GEMINI_API_KEYS.split(',').map(k => k.trim());
+  tokenPool = process.env.GEMINI_API_KEYS.split(',')
+    .map(k => k.trim())
+    .filter(k => k.length > 25);
 }
 
 console.log(`🔑 Berhasil mendeteksi ${tokenPool.length} token API dari file .env`);
+tokenPool.forEach((token, index) => {
+  console.log(`   👉 Index [${index}]: ${token.substring(0, 7)}...${token.substring(token.length - 4)}`);
+});
 
 let currentTokenIndex = 0;
+
+// ==========================================
+// 🧹 UTILITY: Pembersih Skema JSON untuk Gemini API
+// ==========================================
+const sanitizeGeminiSchema = (obj) => {
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeGeminiSchema);
+  } else if (obj !== null && typeof obj === 'object') {
+    const cleaned = {};
+    for (const [key, value] of Object.entries(obj)) {
+      // Hapus properti extended JSON Schema yang dibenci hulu Gemini API
+      if (
+        key === '$comment' || 
+        key === 'enumDescriptions' || 
+        key === 'additionalProperties' ||
+        key === '$schema'
+      ) {
+        continue;
+      }
+      // Rekursi untuk objek bersarang di dalamnya
+      cleaned[key] = sanitizeGeminiSchema(value);
+    }
+    return cleaned;
+  }
+  return obj;
+};
 
 // FUNGSI UTAMA: Konversi format pesan OpenAI/Hermes ke Google AI Native Format
 const transformPayloadOpenAIToGoogle = (openAiBody) => {
@@ -68,7 +121,7 @@ const transformPayloadOpenAIToGoogle = (openAiBody) => {
 
     const parts = [];
 
-    // Inject persona ke system message dari Continue.dev
+    // Inject persona ke system message dari Continue.dev / Copilot
     if (msg.role === 'system') {
       if (SEBASTIAN_PERSONA) {
         parts.push({ text: SEBASTIAN_PERSONA + "\n\n---\n\n" + (msg.content || '') });
@@ -80,14 +133,26 @@ const transformPayloadOpenAIToGoogle = (openAiBody) => {
 
     if (msg.content) parts.push({ text: msg.content });
     
-    // Jika Hermes mengirimkan balik instruksi asisten yang berisi tool_calls sebelumnya
+   // Jika Hermes/Copilot mengirimkan balik riwayat asisten yang berisi tool_calls sebelumnya
     if (msg.tool_calls) {
-      msg.tool_calls.forEach(tc => {
+      msg.tool_calls.forEach((tc, idx) => {
         let args = {};
-        try { args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments; } catch(e){}
-        parts.push({
+        try { 
+          args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments; 
+        } catch(e){}
+        
+        // ✨ SOLUSI AKTUAL: Tempelkan langsung SEJAJAR dengan functionCall, bukan di-push terpisah!
+        const toolPart = {
           functionCall: { name: tc.function.name, args: args }
-        });
+        };
+
+        // Dokumentasi Google: Hanya unit functionCall pertama di setiap step yang wajib divalidasi signature-nya
+        if (idx === 0) {
+          toolPart.thoughtSignature = "skip_thought_signature_validator";
+          toolPart.thought_signature = "skip_thought_signature_validator";
+        }
+
+        parts.push(toolPart);
       });
     }
 
@@ -108,13 +173,14 @@ const transformPayloadOpenAIToGoogle = (openAiBody) => {
 
   const googlePayload = { contents };
 
-  // Pemetaan Objek Tools (Function Declarations) dari Hermes langsung diteruskan ke Google!
+  // Pemetaan Objek Tools dengan Sanitisasi Ketat untuk Gemini API
   if (openAiBody.tools) {
+    console.log("🧹 Menyaring schema tools dari Copilot untuk stabilitas Gemini API...");
     googlePayload.tools = [{
       functionDeclarations: openAiBody.tools.map(t => ({
         name: t.function.name,
         description: t.function.description || "Execute system commands",
-        parameters: t.function.parameters
+        parameters: t.function.parameters ? sanitizeGeminiSchema(t.function.parameters) : undefined
       }))
     }];
   }
@@ -187,25 +253,36 @@ const handleChat = async (req, res) => {
     lastMessageContent.toLowerCase().includes('summarize this session') ||
     req.url.includes('v1main')
   ) {
-    console.log('🤫 Mencegat request Auxiliary Title Generation. Mengirimkan judul tiruan aman...');
+    console.log('🤫 Mencegat request Auxiliary Title Generation...');
     return res.json({
-      id: chunkId,
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
-      model: "gemini-3.5-flash",
-      choices: [{
-        index: 0,
-        message: { role: 'assistant', content: "Sebastian Session" },
-        finish_reason: "stop"
-      }]
+      id: chunkId, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: "gemini-3.5-flash",
+      choices: [{ index: 0, message: { role: 'assistant', content: "Sebastian Session" }, finish_reason: "stop" }]
     });
+  }
+
+  // 🔑 LOGIK STICKY TOKEN BERDASARKAN STRUKTUR PESAN PERTAMA CHAT
+  const firstMessageKey = messages[0]?.content ? messages[0].content.substring(0, 50) : "default_session";
+  
+  let targetTokenIndex;
+  if (sessionTokenMap.has(firstMessageKey)) {
+    // Jika multi-turn / tool calling berjalan, PAKSA kunci ke API key yang sama agar tidak tabrakan di internal Google
+    targetTokenIndex = sessionTokenMap.get(firstMessageKey);
+    console.log(`📌 [Sticky Session] Mengunci Sesi lama pada Token Index ke-${targetTokenIndex}`);
+  } else {
+    // Jika room baru dimulai, rotasikan token menggunakan round-robin standar
+    targetTokenIndex = currentTokenIndex;
+    sessionTokenMap.set(firstMessageKey, targetTokenIndex);
+    currentTokenIndex = (currentTokenIndex + 1) % tokenPool.length;
+    console.log(`🆕 [Sticky Session] Mendaftarkan Sesi Baru ke Token Index ke-${targetTokenIndex}`);
+    
+    setTimeout(() => { if(sessionTokenMap.has(firstMessageKey)) sessionTokenMap.delete(firstMessageKey); }, 1000 * 60 * 20);
   }
 
   let attempts = 0;
   const maxAttempts = tokenPool.length; 
 
   while (attempts < maxAttempts) {
-    const activeIndex = currentTokenIndex;
+    const activeIndex = (targetTokenIndex + attempts) % tokenPool.length;
     const activeApiKey = tokenPool[activeIndex];
     
     currentTokenIndex = (currentTokenIndex + 1) % tokenPool.length;
@@ -248,19 +325,13 @@ const handleChat = async (req, res) => {
           res.setHeader('Connection', 'keep-alive');
 
           const streamPayload = {
-            id: chunkId,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model: requestedModel,
+            id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
             choices: [{ index: 0, delta: { role: "assistant", tool_calls: openAiToolCalls }, finish_reason: null }]
           };
           res.write(`data: ${JSON.stringify(streamPayload)}\n\n`);
           
           const finalStreamPayload = {
-            id: chunkId,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model: requestedModel,
+            id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
             choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }]
           };
           res.write(`data: ${JSON.stringify(finalStreamPayload)}\n\n`);
@@ -269,15 +340,8 @@ const handleChat = async (req, res) => {
         }
 
         return res.json({
-          id: chunkId,
-          object: "chat.completion",
-          created: Math.floor(Date.now() / 1000),
-          model: requestedModel,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: null, tool_calls: openAiToolCalls },
-            finish_reason: "tool_calls"
-          }]
+          id: chunkId, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: requestedModel,
+          choices: [{ index: 0, message: { role: 'assistant', content: null, tool_calls: openAiToolCalls }, finish_reason: "tool_calls" }]
         });
       }
 
@@ -290,10 +354,7 @@ const handleChat = async (req, res) => {
         const words = aiReply.match(/[\s\S]{1,4}/g) || [aiReply];
         for (const word of words) {
           const streamPayload = {
-            id: chunkId,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model: requestedModel,
+            id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
             choices: [{ index: 0, delta: { content: word }, finish_reason: null }]
           };
           res.write(`data: ${JSON.stringify(streamPayload)}\n\n`);
@@ -301,10 +362,7 @@ const handleChat = async (req, res) => {
         }
 
         const finalStreamPayload = {
-          id: chunkId,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model: requestedModel,
+          id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
           choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
         };
         res.write(`data: ${JSON.stringify(finalStreamPayload)}\n\n`);
@@ -313,20 +371,14 @@ const handleChat = async (req, res) => {
       }
 
       return res.json({
-        id: chunkId,
-        object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
-        model: requestedModel,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: aiReply },
-          finish_reason: "stop"
-        }],
+        id: chunkId, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: requestedModel,
+        choices: [{ index: 0, message: { role: 'assistant', content: aiReply }, finish_reason: "stop" }],
         usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }
       });
 
     } catch (error) {
       if (error.type === 'QUOTA' || error.type === 'EMPTY_TEXT') {
+        sessionTokenMap.set(firstMessageKey, (activeIndex + 1) % tokenPool.length);
         continue; 
       }
       console.error(`❌ Fatal Error di Token index ke-${activeIndex}:`, error.message);
@@ -349,7 +401,7 @@ app.get('/v1/models', (req, res) => res.json({
   ]
 }));
 
-// === ENDPOINT EMBEDDINGS UNTUK #codebase ===
+// === ENDPOINT EMBEDDINGS UNTUK #codebase (Original Configuration Maintained) ===
 app.post('/v1/embeddings', async (req, res) => {
   const input = req.body.input;
   const texts = Array.isArray(input) ? input : [input];
