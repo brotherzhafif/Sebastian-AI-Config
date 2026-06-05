@@ -280,7 +280,7 @@ const handleChat = async (req, res) => {
   const maxAttempts = tokenPool.length; 
 
   while (attempts < maxAttempts) {
-    // Indeks melompat dinamis maju berdasarkan jumlah attempt yang gagal
+    // Tetapkan indeks berdasarkan baseTokenIndex ditambah offset attempt saat ini
     const activeIndex = (baseTokenIndex + attempts) % tokenPool.length;
     const activeApiKey = tokenPool[activeIndex];
     
@@ -289,13 +289,10 @@ const handleChat = async (req, res) => {
     console.log(`[Round-Robin] Mencoba Token index ke-${activeIndex} untuk model ${requestedModel} (Attempt ${attempts}/${maxAttempts})`);
 
     try {
-      // Lempar seluruh request body OpenAI agar diproses dinamis beserta tools-nya
       const googleRawResponse = await queryGoogleAI(req.body, activeApiKey, activeIndex, requestedModel);
       
       const candidate = googleRawResponse.candidates?.[0];
       const part = candidate?.content?.parts?.[0];
-
-      // Jembatan mengecek apakah Google meminta fungsi pemanggilan Tool (Function Call)
       const hasFunctionCall = part && part.functionCall;
       const aiReply = part?.text || "";
 
@@ -304,97 +301,33 @@ const handleChat = async (req, res) => {
         continue;
       }
 
-      // ✨ KUNCI SUKSES: Jika token ini berhasil mengeksekusi dengan aman,
-      // kita perbarui peta sesi ke index token ini agar turn lanjutannya ikut ke sini.
+      // ✨ SUKSES: Kunci token ini untuk turn berikutnya di session ini
       sessionTokenMap.set(firstMessageKey, activeIndex);
       currentTokenIndex = (activeIndex + 1) % tokenPool.length;
 
-      // 🛠️ STRATEGI TRANSLASI PEMANGGILAN TOOL JALUR STREAMING/NON-STREAMING 🛠️
+      // --- Sisa kode translasi tool_calls / chat stream & non-stream Anda di sini ---
       if (hasFunctionCall) {
-        console.log(`🔧 [TOOL DETECTED] Google meminta eksekusi fungsi: ${part.functionCall.name}`);
-        
-        const openAiToolCalls = [{
-          id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          type: "function",
-          function: {
-            name: part.functionCall.name,
-            arguments: JSON.stringify(part.functionCall.args || {})
-          }
-        }];
-
-        if (isStreamRequested) {
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache');
-          res.setHeader('Connection', 'keep-alive');
-
-          const streamPayload = {
-            id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
-            choices: [{ index: 0, delta: { role: "assistant", tool_calls: openAiToolCalls }, finish_reason: null }]
-          };
-          res.write(`data: ${JSON.stringify(streamPayload)}\n\n`);
-          
-          const finalStreamPayload = {
-            id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
-            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }]
-          };
-          res.write(`data: ${JSON.stringify(finalStreamPayload)}\n\n`);
-          res.write('data: [DONE]\n\n');
-          return res.end();
-        }
-
-        return res.json({
-          id: chunkId, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: requestedModel,
-          choices: [{ index: 0, message: { role: 'assistant', content: null, tool_calls: openAiToolCalls }, finish_reason: "tool_calls" }]
-        });
+        // ... (tetap gunakan kode lama Anda untuk stream/json tool)
       }
-
-      // JALUR CHAT BIASA (TIDAK MANGGIL TOOL)
-      if (isStreamRequested) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-
-        const words = aiReply.match(/[\s\S]{1,4}/g) || [aiReply];
-        for (const word of words) {
-          const streamPayload = {
-            id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
-            choices: [{ index: 0, delta: { content: word }, finish_reason: null }]
-          };
-          res.write(`data: ${JSON.stringify(streamPayload)}\n\n`);
-          await new Promise(r => setTimeout(r, 12));
-        }
-
-        const finalStreamPayload = {
-          id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
-        };
-        res.write(`data: ${JSON.stringify(finalStreamPayload)}\n\n`);
-        res.write('data: [DONE]\n\n');
-        return res.end();
-      }
-
-      return res.json({
-        id: chunkId, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: requestedModel,
-        choices: [{ index: 0, message: { role: 'assistant', content: aiReply }, finish_reason: "stop" }],
-        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }
-      });
+      // ... (tetap gunakan kode lama Anda untuk stream/json biasa)
+      return res.json({ /* ... */ });
 
     } catch (error) {
       console.error(`❌ Gangguan di Token index ke-${activeIndex}:`, error.message);
       
-      // ✨ FAILOVER DINAMIS: Jika token index ini error/limit, alihkan ingatan room 
-      // langsung ke token selanjutnya (+1) agar turn berikutnya dari Copilot tidak kembali nembak token mati ini.
+      // ✨ FIX: Jangan ubah baseTokenIndex atau merusak map di dalam loop. 
+      // Cukup update map untuk turn (request) masa depan agar langsung mencoba token berikutnya.
       const nextFallbackIndex = (activeIndex + 1) % tokenPool.length;
       sessionTokenMap.set(firstMessageKey, nextFallbackIndex);
-      baseTokenIndex = nextFallbackIndex;
       
+      // Biarkan loop berlanjut secara natural menggunakan 'attempts' sebagai offset pointer
       continue; 
     }
   }
 
   // === FALLBACK POOL LIMIT MASSAL ===
   console.error('🚨 [FATAL POOL] Seluruh token API di file .env tidak merespons atau kehabisan kuota.');
-  const failMessage = "Sebastian sedang mengalami kepadatan lalu lintas kuota hulu secara massal. Silakan coba kirim ulang pesan ini dalam beberapa saat.";
+  const failMessage = "Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan";
 
   if (isStreamRequested) {
     res.setHeader('Content-Type', 'text/event-stream');

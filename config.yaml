@@ -154,10 +154,10 @@ tool_loop_guardrails:
     idempotent_no_progress: 5
 compression:
   enabled: true
-  threshold: 0.2
+  threshold: 0.7
   target_ratio: 0.1
-  protect_last_n: 5
-  hygiene_hard_message_limit: 400
+  protect_last_n: 2
+  hygiene_hard_message_limit: 100
   protect_first_n: 3
   abort_on_summary_failure: false
 prompt_caching:
@@ -274,6 +274,7 @@ display:
   resume_max_assistant_lines: 3
   resume_skip_tool_only: true
   busy_input_mode: interrupt
+  interface: cli
   tui_auto_resume_recent: false
   tui_agents_nudge: true
   bell_on_complete: false
@@ -322,6 +323,12 @@ dashboard:
   oauth:
     client_id: ''
     portal_url: ''
+  basic_auth:
+    username: ''
+    password_hash: ''
+    password: ''
+    secret: ''
+    session_ttl_seconds: 0
   public_url: ''
 privacy:
   redact_pii: false
@@ -443,6 +450,20 @@ discord:
   server_actions: ''
   allow_any_attachment: false
   max_attachment_bytes: 33554432
+  voice_fx:
+    enabled: false
+    ambient_enabled: true
+    ambient_path: ''
+    ambient_gain: 0.18
+    duck_gain: 0.06
+    speech_gain: 1.0
+    ack_enabled: true
+    ack_phrases:
+    - Let me look into that.
+    - One moment.
+    - Checking on that now.
+    - Give me a sec.
+    - On it.
 whatsapp: {}
 telegram:
   reactions: false
@@ -465,14 +486,16 @@ approvals:
   destructive_slash_confirm: false
   detailed_notifications: false
 command_allowlist:
+- overwrite project env/config via redirection
+- execute_code
+- stop/restart hermes gateway (kills running agents)
 - stop/restart system service
 - delete in root path
 - copy/move file into /etc/
-- script execution via -e/-c flag
-- stop/restart hermes gateway (kills running agents)
-- overwrite project env/config via redirection
+- delete in root path
 - in-place edit of system config
 - overwrite system file via redirection
+- script execution via -e/-c flag
 quick_commands: {}
 hooks: {}
 hooks_auto_accept: false
@@ -531,6 +554,13 @@ gateway:
   media_delivery_allow_dirs: []
   trust_recent_files: true
   trust_recent_files_seconds: 600
+streaming:
+  enabled: false
+  transport: auto
+  edit_interval: 0.8
+  buffer_threshold: 24
+  cursor: " \u2589"
+  fresh_final_after_seconds: 60.0
 sessions:
   auto_prune: false
   retention_days: 90
@@ -543,6 +573,7 @@ onboarding:
 updates:
   pre_update_backup: false
   backup_keep: 5
+  non_interactive_local_changes: stash
 lsp:
   enabled: true
   wait_mode: document
@@ -620,8 +651,6 @@ session_reset:
   at_hour: 7
   idle_minutes: 30
   mode: both
-streaming:
-  enabled: false
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.
