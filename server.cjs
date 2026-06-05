@@ -1,9 +1,31 @@
+const fs = require('fs');
+const path = require('path');
+
+// Load persona files
+const loadPersona = () => {
+  try {
+    const soul = fs.readFileSync(path.join(__dirname, 'SOUL.md'), 'utf8');
+    const memory = fs.readFileSync(path.join(__dirname, 'memories', 'MEMORY.md'), 'utf8');
+    const user = fs.readFileSync(path.join(__dirname, 'memories', 'USER.md'), 'utf8');
+    return `${soul}\n\n---\n\n${memory}\n\n---\n\n${user}`;
+  } catch (err) {
+    console.warn('⚠️ Gagal load persona files:', err.message);
+    return '';
+  }
+};
+
+const SEBASTIAN_PERSONA = loadPersona();
+console.log(`🧠 Persona Sebastian berhasil dimuat (${SEBASTIAN_PERSONA.length} chars)`);
+
 const express = require('express');
 const https = require('https');
 require('dotenv').config();
 
 const app = express();
 app.use(express.json());
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.use((req, res, next) => {
   console.log(`[${req.method}] ${req.url}`);
@@ -45,6 +67,17 @@ const transformPayloadOpenAIToGoogle = (openAiBody) => {
     }
 
     const parts = [];
+
+    // Inject persona ke system message dari Continue.dev
+    if (msg.role === 'system') {
+      if (SEBASTIAN_PERSONA) {
+        parts.push({ text: SEBASTIAN_PERSONA + "\n\n---\n\n" + (msg.content || '') });
+      } else {
+        parts.push({ text: msg.content || '' });
+      }
+      return { role: 'user', parts };
+    }
+
     if (msg.content) parts.push({ text: msg.content });
     
     // Jika Hermes mengirimkan balik instruksi asisten yang berisi tool_calls sebelumnya
@@ -63,6 +96,15 @@ const transformPayloadOpenAIToGoogle = (openAiBody) => {
       parts: parts
     };
   });
+
+  // Kalau tidak ada system message sama sekali, prepend persona sebagai pesan pertama
+  const hasSystem = messages.some(m => m.role === 'system');
+  if (!hasSystem && SEBASTIAN_PERSONA) {
+    contents.unshift({
+      role: 'user',
+      parts: [{ text: SEBASTIAN_PERSONA }]
+    });
+  }
 
   const googlePayload = { contents };
 
@@ -294,6 +336,89 @@ const handleChat = async (req, res) => {
 
   return res.status(429).json({ error: 'Semua token limit harian' });
 };
+
+// === ROUTES OPENAI STANDARD ===
+app.post('/v1/chat/completions', handleChat);
+app.post('/chat/completions', handleChat);
+
+app.get('/v1/models', (req, res) => res.json({
+  object: "list",
+  data: [
+    { id: "gemini-2.5-flash", object: "model", created: 1686935002, owned_by: "google" },
+    { id: "gemini-3.5-flash", object: "model", created: 1686935002, owned_by: "google" }
+  ]
+}));
+
+// === ENDPOINT EMBEDDINGS UNTUK #codebase ===
+app.post('/v1/embeddings', async (req, res) => {
+  const input = req.body.input;
+  const texts = Array.isArray(input) ? input : [input];
+
+  // Coba semua token sampai berhasil
+  let lastError = null;
+  for (let i = 0; i < tokenPool.length; i++) {
+    const apiKey = tokenPool[(currentTokenIndex + i) % tokenPool.length];
+    
+    try {
+      const embeddings = await Promise.all(texts.map(async (text, idx) => {
+        const payload = JSON.stringify({
+          model: "models/gemini-embedding-2",
+          content: { parts: [{ text: String(text) }] }
+        });
+
+        return new Promise((resolve, reject) => {
+          const options = {
+            hostname: 'generativelanguage.googleapis.com',
+            path: `/v1beta/models/gemini-embedding-2:embedContent?key=${apiKey}`,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(payload)
+            }
+          };
+
+          let responseText = '';
+          const googleReq = https.request(options, (googleRes) => {
+            googleRes.on('data', chunk => responseText += chunk.toString());
+            googleRes.on('end', () => {
+              try {
+                const json = JSON.parse(responseText);
+                if (json.error) return reject(json.error);
+                resolve({
+                  object: "embedding",
+                  index: idx,
+                  embedding: json.embedding.values
+                });
+              } catch (e) {
+                reject(e);
+              }
+            });
+          });
+
+          googleReq.on('error', reject);
+          googleReq.write(payload);
+          googleReq.end();
+        });
+      }));
+
+      // Berhasil, update index
+      currentTokenIndex = (currentTokenIndex + i + 1) % tokenPool.length;
+      return res.json({
+        object: "list",
+        data: embeddings,
+        model: "gemini-embedding-2",
+        usage: { prompt_tokens: 0, total_tokens: 0 }
+      });
+
+    } catch (err) {
+      console.warn(`⚠️ Embedding token ke-${i} gagal:`, err.message || err);
+      lastError = err;
+    }
+  }
+
+  console.error('❌ Semua token gagal untuk embedding:', lastError);
+  return res.status(500).json({ error: 'Embedding failed' });
+});
 
 app.use((req, res) => {
   if (req.method === 'POST') {

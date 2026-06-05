@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 🎩 Skrip Reset Total Sebastian Butler 🎩
+# 🎩 Skrip Reset Total Sebastian Butler & Copilot Gateway 🎩
 
 echo "⏳ Memulai pembersihan sistem sesuai protokol, Tuan Zhafif..."
 
@@ -17,7 +17,6 @@ sudo -E sudo sebastian gateway start
 
 # 3. Restart Hermes Live Bridge (server.cjs pada localhost:8089)
 echo "🔄 Me-restart Hermes Live Bridge (server.cjs)..."
-# Cari PID dari server.cjs
 PID_BRIDGE=$(pgrep -f "node server.cjs")
 if [ -n "$PID_BRIDGE" ]; then
     kill -9 $PID_BRIDGE > /dev/null 2>&1
@@ -30,4 +29,4 @@ cd ~/.hermes
 nohup node server.cjs > bridge_output.log 2>&1 &
 echo "✓ Hermes Live Bridge v8.0 aktif kembali di latar belakang (localhost:8089)."
 
-echo "✨ Seluruh sistem telah segar kembali."
+echo "✨ Seluruh sistem telah segar kembali dan siap melayani."
