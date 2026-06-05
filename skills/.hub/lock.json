@@ -1,1 +1,91 @@
-{"version": 1, "installed": {}}
+{
+  "version": 1,
+  "installed": {
+    "baoyu-article-illustrator": {
+      "source": "official",
+      "identifier": "official/creative/baoyu-article-illustrator",
+      "trust_level": "builtin",
+      "scan_verdict": "backfilled",
+      "content_hash": "sha256:49c09a0ee50b2e59",
+      "install_path": "creative/baoyu-article-illustrator",
+      "files": [
+        "PORT_NOTES.md",
+        "SKILL.md",
+        "prompts/system.md",
+        "references/palettes/macaron.md",
+        "references/palettes/mono-ink.md",
+        "references/palettes/neon.md",
+        "references/palettes/warm.md",
+        "references/prompt-construction.md",
+        "references/style-presets.md",
+        "references/styles/blueprint.md",
+        "references/styles/chalkboard.md",
+        "references/styles/editorial.md",
+        "references/styles/elegant.md",
+        "references/styles/fantasy-animation.md",
+        "references/styles/flat-doodle.md",
+        "references/styles/flat.md",
+        "references/styles/ink-notes.md",
+        "references/styles/intuition-machine.md",
+        "references/styles/minimal.md",
+        "references/styles/nature.md",
+        "references/styles/notion.md",
+        "references/styles/pixel-art.md",
+        "references/styles/playful.md",
+        "references/styles/retro.md",
+        "references/styles/scientific.md",
+        "references/styles/screen-print.md",
+        "references/styles/sketch-notes.md",
+        "references/styles/sketch.md",
+        "references/styles/vector-illustration.md",
+        "references/styles/vintage.md",
+        "references/styles/warm.md",
+        "references/styles/watercolor.md",
+        "references/styles.md",
+        "references/usage.md",
+        "references/workflow.md"
+      ],
+      "metadata": {
+        "backfilled_from": "optional-skills"
+      },
+      "installed_at": "2026-06-05T18:49:15.125135+00:00",
+      "updated_at": "2026-06-05T18:49:15.125135+00:00"
+    },
+    "creative-ideation": {
+      "source": "official",
+      "identifier": "official/creative/creative-ideation",
+      "trust_level": "builtin",
+      "scan_verdict": "backfilled",
+      "content_hash": "sha256:0045b1d6486f5e2e",
+      "install_path": "creative/creative-ideation",
+      "files": [
+        "SKILL.md",
+        "references/full-prompt-library.md"
+      ],
+      "metadata": {
+        "backfilled_from": "optional-skills"
+      },
+      "installed_at": "2026-06-05T18:49:15.137327+00:00",
+      "updated_at": "2026-06-05T18:49:15.137327+00:00"
+    },
+    "dspy": {
+      "source": "official",
+      "identifier": "official/mlops/research/dspy",
+      "trust_level": "builtin",
+      "scan_verdict": "backfilled",
+      "content_hash": "sha256:bbbe1148d27953a8",
+      "install_path": "mlops/research/dspy",
+      "files": [
+        "SKILL.md",
+        "references/examples.md",
+        "references/modules.md",
+        "references/optimizers.md"
+      ],
+      "metadata": {
+        "backfilled_from": "optional-skills"
+      },
+      "installed_at": "2026-06-05T18:49:15.141229+00:00",
+      "updated_at": "2026-06-05T18:49:15.141229+00:00"
+    }
+  }
+}

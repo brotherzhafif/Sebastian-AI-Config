@@ -260,20 +260,18 @@ const handleChat = async (req, res) => {
     });
   }
 
-  // 🔑 LOGIK STICKY TOKEN BERDASARKAN STRUKTUR PESAN PERTAMA CHAT
+  // 🔑 REVISI: Ambil acuan token awal, tapi tidak mengunci mati (Bisa Bergeser Dinamis)
   const firstMessageKey = messages[0]?.content ? messages[0].content.substring(0, 50) : "default_session";
   
-  let targetTokenIndex;
+  let baseTokenIndex;
   if (sessionTokenMap.has(firstMessageKey)) {
-    // Jika multi-turn / tool calling berjalan, PAKSA kunci ke API key yang sama agar tidak tabrakan di internal Google
-    targetTokenIndex = sessionTokenMap.get(firstMessageKey);
-    console.log(`📌 [Sticky Session] Mengunci Sesi lama pada Token Index ke-${targetTokenIndex}`);
+    baseTokenIndex = sessionTokenMap.get(firstMessageKey);
+    console.log(`📌 [Dynamic Session] Melanjutkan turn dengan acuan Token Index ke-${baseTokenIndex}`);
   } else {
-    // Jika room baru dimulai, rotasikan token menggunakan round-robin standar
-    targetTokenIndex = currentTokenIndex;
-    sessionTokenMap.set(firstMessageKey, targetTokenIndex);
+    baseTokenIndex = currentTokenIndex;
+    sessionTokenMap.set(firstMessageKey, baseTokenIndex);
     currentTokenIndex = (currentTokenIndex + 1) % tokenPool.length;
-    console.log(`🆕 [Sticky Session] Mendaftarkan Sesi Baru ke Token Index ke-${targetTokenIndex}`);
+    console.log(`🆕 [Dynamic Session] Memulai room baru di Token Index ke-${baseTokenIndex}`);
     
     setTimeout(() => { if(sessionTokenMap.has(firstMessageKey)) sessionTokenMap.delete(firstMessageKey); }, 1000 * 60 * 20);
   }
@@ -282,10 +280,10 @@ const handleChat = async (req, res) => {
   const maxAttempts = tokenPool.length; 
 
   while (attempts < maxAttempts) {
-    const activeIndex = (targetTokenIndex + attempts) % tokenPool.length;
+    // Indeks melompat dinamis maju berdasarkan jumlah attempt yang gagal
+    const activeIndex = (baseTokenIndex + attempts) % tokenPool.length;
     const activeApiKey = tokenPool[activeIndex];
     
-    currentTokenIndex = (currentTokenIndex + 1) % tokenPool.length;
     attempts++;
 
     console.log(`[Round-Robin] Mencoba Token index ke-${activeIndex} untuk model ${requestedModel} (Attempt ${attempts}/${maxAttempts})`);
@@ -305,6 +303,11 @@ const handleChat = async (req, res) => {
         console.warn(`⚠️ Token index ke-${activeIndex} mengembalikan respons kosong hulu. Skip...`);
         continue;
       }
+
+      // ✨ KUNCI SUKSES: Jika token ini berhasil mengeksekusi dengan aman,
+      // kita perbarui peta sesi ke index token ini agar turn lanjutannya ikut ke sini.
+      sessionTokenMap.set(firstMessageKey, activeIndex);
+      currentTokenIndex = (activeIndex + 1) % tokenPool.length;
 
       // 🛠️ STRATEGI TRANSLASI PEMANGGILAN TOOL JALUR STREAMING/NON-STREAMING 🛠️
       if (hasFunctionCall) {
@@ -377,16 +380,40 @@ const handleChat = async (req, res) => {
       });
 
     } catch (error) {
-      if (error.type === 'QUOTA' || error.type === 'EMPTY_TEXT') {
-        sessionTokenMap.set(firstMessageKey, (activeIndex + 1) % tokenPool.length);
-        continue; 
-      }
-      console.error(`❌ Fatal Error di Token index ke-${activeIndex}:`, error.message);
-      return res.status(500).json({ error: 'Internal technical glitch' });
+      console.error(`❌ Gangguan di Token index ke-${activeIndex}:`, error.message);
+      
+      // ✨ FAILOVER DINAMIS: Jika token index ini error/limit, alihkan ingatan room 
+      // langsung ke token selanjutnya (+1) agar turn berikutnya dari Copilot tidak kembali nembak token mati ini.
+      const nextFallbackIndex = (activeIndex + 1) % tokenPool.length;
+      sessionTokenMap.set(firstMessageKey, nextFallbackIndex);
+      baseTokenIndex = nextFallbackIndex;
+      
+      continue; 
     }
   }
 
-  return res.status(429).json({ error: 'Semua token limit harian' });
+  // === FALLBACK POOL LIMIT MASSAL ===
+  console.error('🚨 [FATAL POOL] Seluruh token API di file .env tidak merespons atau kehabisan kuota.');
+  const failMessage = "Sebastian sedang mengalami kepadatan lalu lintas kuota hulu secara massal. Silakan coba kirim ulang pesan ini dalam beberapa saat.";
+
+  if (isStreamRequested) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const failPayload = {
+      id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: requestedModel,
+      choices: [{ index: 0, delta: { content: failMessage }, finish_reason: "stop" }]
+    };
+    res.write(`data: ${JSON.stringify(failPayload)}\n\n`);
+    res.write('data: [DONE]\n\n');
+    return res.end();
+  }
+
+  return res.json({
+    id: chunkId, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: requestedModel,
+    choices: [{ index: 0, message: { role: 'assistant', content: failMessage }, finish_reason: "stop" }]
+  });
 };
 
 // === ROUTES OPENAI STANDARD ===
@@ -489,4 +516,4 @@ app.use((req, res) => {
   }
 });
 
-app.listen(8089, () => console.log('🚀 Hermes Live Bridge v8.0 (Advanced Tool Calling) aktif di http://localhost:8089'));
+app.listen(9089, () => console.log('🚀 Hermes Live Bridge v8.0 (Advanced Tool Calling) aktif di http://localhost:9089'));
