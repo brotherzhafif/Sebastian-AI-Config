@@ -1,0 +1,45 @@
+services:
+  hermes-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hermes_bridge
+    restart: unless-stopped
+    ports:
+      - "9089:9089"
+    env_file:
+      - ./.env
+    volumes:
+      - ./SOUL.md:/app/SOUL.md:ro
+      - ./memories:/app/memories:ro
+      - ./logs:/app/logs
+    networks:
+      - hermes-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      com.hermes.service: "bridge"
+
+  hermes-dozzle:
+    image: amir20/dozzle:latest
+    container_name: hermes_dozzle
+    restart: unless-stopped
+    environment:
+      DOZZLE_AUTH_PROVIDER: "simple"
+      # Hanya tampilkan container hermes_bridge
+      DOZZLE_FILTER: "name=hermes_bridge"
+      DOZZLE_BASE: "/"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./users.yml:/data/users.yml:ro
+    ports:
+      - "9090:8080"   # port 9090 di host → nanti di-proxy ke hermes-log.brotherzhafif.my.id
+    networks:
+      - hermes-net
+
+networks:
+  hermes-net:
+    driver: bridge

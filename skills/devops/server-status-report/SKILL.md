@@ -16,6 +16,9 @@ Gunakan format ini setiap kali Tuan Zhafif meminta laporan status server, keseha
    - Storage: Jalankan `df -h /`.
    - Load Average: Ambil dari output `uptime`.
 
+2. *Hermes Bridge*:
+   - Jalankan `curl -s -G "http://localhost:9089/dashboard/api/data" --data-urlencode "range=today"` untuk mengambil analitik harian.
+
 ## Format Output (WhatsApp Friendly)
 *Format teks wajib tanpa simbol markdown '#' (gunakan bold dengan bintang '*' untuk WhatsApp)*:
 
@@ -25,3 +28,11 @@ Gunakan format ini setiap kali Tuan Zhafif meminta laporan status server, keseha
 * Uptime: [Durasi]
 * Storage: [Terpakai]/[Total] ([Persentase])
 * Load Average: [1m], [5m], [15m]
+
+*LAPORAN STATUS HERMES BRIDGE*
+
+* Total Request: [Total]
+* Request Sukses: [Sukses] ([Persentase]%)
+* Total Input Token: [Input]
+* Total Output Token: [Output]
+* Rata-rata Latensi: [Latensi] ms

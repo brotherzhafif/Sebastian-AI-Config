@@ -1,25 +1,43 @@
 'use strict';
 
 // ============================================================
-// HERMES BRIDGE — Full Rewrite
+// HERMES BRIDGE v10.1 (Supabase + Dozzle Optimized)
 // OpenAI-compatible API → Google Gemini
+// + Token Compression + Remote Logging + Live Dozzle Stream
 // ============================================================
 
-const fs      = require('fs');
-const path    = require('path');
-const https   = require('https');
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
 const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 // ============================================================
-// CONFIG
+// CONFIG & INITIALIZATION
 // ============================================================
-const PORT            = process.env.PORT || 9089;
-const DEFAULT_MODEL   = 'gemini-2.5-flash';
-const REQUEST_TIMEOUT = 10_000;   // ms per token attempt
-const SESSION_TTL     = 20 * 60 * 1000; // 20 menit
+const PORT = process.env.PORT || 9089;
+const DEFAULT_MODEL = 'gemini-2.5-flash';
+const REQUEST_TIMEOUT = 10_000;
 
-// Model fallback chain — urut dari paling capable ke paling ringan
+// Import modul ws penangkal crash WebSocket pada Node under v22
+const ws = require('ws'); 
+
+// Inisialisasi Supabase Core dengan Global Transport WebSocket
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY,
+  {
+    auth: { persistSession: false }, // Mencegah memori leak / session overhead di RAM
+    global: {
+      headers: { 'x-application-name': 'hermes-bridge' }
+    },
+    realtime: {
+      transport: ws // Memaksa Supabase menggunakan engine dari package 'ws'
+    }
+  }
+);
+
 const MODEL_FALLBACK_CHAIN = [
   'gemini-2.5-flash',
   'gemini-3.5-flash',
@@ -31,24 +49,98 @@ const MODEL_FALLBACK_CHAIN = [
   'gemini-flash-lite-latest',
 ];
 
-// Alias: nama tidak resmi dari client → nama model yang ada
 const MODEL_ALIASES = {
-  'gemini-3-flash-live':   'gemini-flash-latest',
-  'gemini-3.5-pro':        'gemini-2.5-flash',
-  'gemini-2.5-pro':        'gemini-2.5-flash',
+  'gemini-3-flash-live': 'gemini-flash-latest',
+  'gemini-3.5-pro': 'gemini-2.5-flash',
+  'gemini-2.5-pro': 'gemini-2.5-flash',
   'gemini-3.5-flash-lite': 'gemini-2.5-flash-lite',
-  'gemini-flash':          'gemini-flash-latest',
-  'gemini-flash-lite':     'gemini-flash-lite-latest',
+  'gemini-flash': 'gemini-flash-latest',
+  'gemini-flash-lite': 'gemini-flash-lite-latest',
 };
 
 function resolveModel(requested) {
   if (!requested) return DEFAULT_MODEL;
   if (MODEL_ALIASES[requested]) {
-    const resolved = MODEL_ALIASES[requested];
-    console.log(`🔄 Model alias: ${requested} → ${resolved}`);
-    return resolved;
+    return MODEL_ALIASES[requested];
   }
   return requested;
+}
+
+// ============================================================
+// SUPABASE REMOTE LOGGER (Asynchronous / Non-blocking)
+// ============================================================
+function recordRequestRemote({ model, inputTokens, outputTokens, tokenIdx, success, ms }) {
+  // Berjalan di background agar tidak mengorbankan kecepatan respon API utama
+  supabase
+    .from('hermes_requests')
+    .insert([
+      {
+        model,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        token_index: tokenIdx,
+        success,
+        latency_ms: ms,
+      },
+    ])
+    .then(({ error }) => {
+      if (error) console.error(`❌ Supabase Log Error: ${error.message}`);
+    });
+}
+
+// ============================================================
+// TOKEN COMPRESSION ("few token do trick")
+// ============================================================
+const COMPRESSION_RULES = [
+  [/\bplease\b/gi, ''],
+  [/\bkindly\b/gi, ''],
+  [/\bcould you\b/gi, ''],
+  [/\bwould you\b/gi, ''],
+  [/\bi would like(?: you)? to\b/gi, ''],
+  [/\bcan you please\b/gi, ''],
+  [/\bi want you to\b/gi, ''],
+  [/\bfeel free to\b/gi, ''],
+  [/\bin order to\b/gi, 'to'],
+  [/\bdue to the fact that\b/gi, 'because'],
+  [/\bat this point in time\b/gi, 'now'],
+  [/\bfor the purpose of\b/gi, 'for'],
+  [/\bwith regard to\b/gi, 'about'],
+  [/\bin the event that\b/gi, 'if'],
+  [/\bprior to\b/gi, 'before'],
+  [/\bsubsequent to\b/gi, 'after'],
+  [/\bin addition to\b/gi, 'also'],
+  [/\ba large number of\b/gi, 'many'],
+  [/\bthe majority of\b/gi, 'most'],
+  [/\bit is important to note that\b/gi, ''],
+  [/\bplease note that\b/gi, ''],
+  [/\bas you may know\b/gi, ''],
+  [/\bneedless to say\b/gi, ''],
+  [/\bwithout further ado\b/gi, ''],
+  [/\n\s*\n+/g, '\n'],       // Mampatkan enter beruntun (baris kosong) menjadi 1 enter
+  [/[\r\t]/g, ''],            // Hapus karakter carriage return dan tab tersembunyi
+  [/\b(pikirkan|coba|tolong|mohon|saja|tampaknya|sepertinya)\b/gi, ''], // Bersihkan filler words lokal
+  [/  +/g, ' '],
+  [/^ /gm, ''],
+];
+
+function compressText(text) {
+  if (!text || typeof text !== 'string') return text;
+  if (text.length < 100) return text;
+
+  let out = text;
+  for (const [pattern, replacement] of COMPRESSION_RULES) {
+    out = out.replace(pattern, replacement);
+  }
+  return out.trim();
+}
+
+function compressMessages(messages) {
+  return messages.map(msg => {
+    if (msg.role === 'user' && typeof msg.content === 'string') {
+      return { ...msg, content: compressText(msg.content) };
+    }
+    return msg;
+  });
 }
 
 // ============================================================
@@ -70,69 +162,69 @@ const PERSONA = loadPersona();
 console.log(`🧠 Persona dimuat (${PERSONA.length} chars)`);
 
 // ============================================================
-// TOKEN POOL — auto-detect dari env, tanpa perlu edit manual
+// TOKEN POOL
 // ============================================================
 function buildTokenPool() {
   const seen = new Set();
   const pool = [];
-
   const push = (val) => {
     if (!val) return;
     const v = val.trim();
-    // Validasi: panjang masuk akal, bukan nama model, belum ada
     if (v.length > 25 && !v.toLowerCase().includes('gemini-') && !seen.has(v)) {
       seen.add(v);
       pool.push(v);
     }
   };
 
-  // 1. Scan semua env key yang mengandung GEMINI / GOOGLE
   for (const [key, val] of Object.entries(process.env)) {
     if (/GEMINI|GOOGLE/i.test(key) && !/URL|HOST|MODEL/i.test(key)) {
-      // Support koma-separated dalam satu variabel
       String(val).split(',').forEach(push);
     }
   }
 
-  // 2. Fallback eksplisit kalau belum ada sama sekali
   if (pool.length === 0) {
     ['GEMINI_API_KEY', 'GOOGLE_API_KEY'].forEach(k => push(process.env[k]));
   }
-
   return pool;
 }
 
 const TOKEN_POOL = buildTokenPool();
 if (TOKEN_POOL.length === 0) {
-  console.error('❌ Tidak ada token API ditemukan di .env! Bridge tidak bisa berjalan.');
+  console.error('❌ Tidak ada token API ditemukan di .env!');
   process.exit(1);
 }
-console.log(`🔑 ${TOKEN_POOL.length} token terdeteksi:`);
-TOKEN_POOL.forEach((t, i) =>
-  console.log(`   [${i}] ${t.slice(0, 7)}...${t.slice(-4)}`)
-);
+console.log(`🔑 ${TOKEN_POOL.length} token terdeteksi.`);
 
-// ============================================================
-// SESSION MAP — sticky token per sesi chat
-// ============================================================
-const sessionMap = new Map(); // key → { tokenIndex, timer }
-
-function getSessionIndex(key) {
-  return sessionMap.get(key)?.tokenIndex ?? null;
-}
-
-function setSessionIndex(key, index) {
-  const existing = sessionMap.get(key);
-  if (existing) clearTimeout(existing.timer);
-  const timer = setTimeout(() => sessionMap.delete(key), SESSION_TTL);
-  sessionMap.set(key, { tokenIndex: index, timer });
-}
-
-// Pointer global round-robin (untuk sesi baru)
 let globalIndex = 0;
 
 // ============================================================
-// SCHEMA SANITIZER — buang field yang Gemini tidak suka
+// REMOTE SESSION MANAGER (Supabase-backed)
+// ============================================================
+async function getSessionIndexRemote(key) {
+  const { data, error } = await supabase
+    .from('hermes_sessions')
+    .select('token_index')
+    .eq('session_key', key)
+    .maybeSingle();
+  
+  if (error) {
+    console.error(`⚠️ Gagal mengambil sesi dari Supabase: ${error.message}`);
+    return null;
+  }
+  return data ? data.token_index : null;
+}
+
+function setSessionIndexRemote(key, index) {
+  supabase
+    .from('hermes_sessions')
+    .upsert({ session_key: key, token_index: index, updated_at: new Date() }, { onConflict: 'session_key' })
+    .then(({ error }) => {
+      if (error) console.error(`❌ Gagal menyimpan sesi ke Supabase: ${error.message}`);
+    });
+}
+
+// ============================================================
+// SCHEMA SANITIZER & TRANSFORMER
 // ============================================================
 const BANNED_KEYS = new Set(['$comment', '$schema', 'enumDescriptions', 'additionalProperties']);
 
@@ -148,26 +240,29 @@ function sanitizeSchema(obj) {
   return obj;
 }
 
-// ============================================================
-// PAYLOAD TRANSFORMER — OpenAI format → Gemini format
-// ============================================================
 function toGeminiPayload(body) {
-  const messages = body.messages || [];
-  const contents = [];
+  const rawMessages = body.messages || [];
+  
+  const systemMessages = rawMessages.filter(msg => msg.role === 'system');
+  let chatMessages = rawMessages.filter(msg => msg.role !== 'system');
 
+  // Menjaga kuota token agar tidak membengkak ekstrem
+  const MAX_HISTORY = 15;
+  if (chatMessages.length > MAX_HISTORY) {
+    console.log(`✂️  Context Trim: Memotong riwayat obrolan dari ${chatMessages.length} menjadi ${MAX_HISTORY}`);
+    chatMessages = chatMessages.slice(-MAX_HISTORY);
+  }
+
+  const messages = compressMessages([...systemMessages, ...chatMessages]);
+  
+  const contents = [];
   let hasSystem = false;
 
   for (const msg of messages) {
-    // Tool/function response
     if (msg.role === 'tool' || msg.role === 'function') {
-      contents.push({
-        role: 'user',
-        parts: [{ functionResponse: { name: msg.name || 'terminal', response: { output: msg.content } } }],
-      });
+      contents.push({ role: 'user', parts: [{ functionResponse: { name: msg.name || 'terminal', response: { output: msg.content } } }] });
       continue;
     }
-
-    // System prompt → inject persona
     if (msg.role === 'system') {
       hasSystem = true;
       const text = PERSONA ? `${PERSONA}\n\n---\n\n${msg.content || ''}` : (msg.content || '');
@@ -177,8 +272,6 @@ function toGeminiPayload(body) {
 
     const parts = [];
     if (msg.content) parts.push({ text: msg.content });
-
-    // tool_calls dari riwayat asisten
     if (msg.tool_calls) {
       for (const tc of msg.tool_calls) {
         let args = {};
@@ -186,38 +279,30 @@ function toGeminiPayload(body) {
         parts.push({ functionCall: { name: tc.function.name, args } });
       }
     }
-
-    contents.push({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts,
-    });
+    contents.push({ role: msg.role === 'assistant' ? 'model' : 'user', parts });
   }
 
-  // Prepend persona kalau tidak ada system message
-  if (!hasSystem && PERSONA) {
-    contents.unshift({ role: 'user', parts: [{ text: PERSONA }] });
-  }
+  if (!hasSystem && PERSONA) contents.unshift({ role: 'user', parts: [{ text: PERSONA }] });
 
   const payload = { contents };
 
   if (body.tools?.length) {
-    payload.tools = [{
-      functionDeclarations: body.tools.map(t => ({
-        name: t.function.name,
-        description: t.function.description || '',
-        parameters: t.function.parameters ? sanitizeSchema(t.function.parameters) : undefined,
-      })),
-    }];
+    payload.tools = [{ functionDeclarations: body.tools.map(t => ({
+      name: t.function.name,
+      description: t.function.description || '',
+      parameters: t.function.parameters ? sanitizeSchema(t.function.parameters) : undefined,
+    }))}];
   }
 
   return JSON.stringify(payload);
 }
 
 // ============================================================
-// GEMINI REQUEST — single attempt, fast-fail on 429/403
+// GEMINI REQUEST CORE
 // ============================================================
 function callGemini(body, apiKey, tokenIndex, model) {
   return new Promise((resolve, reject) => {
+    const t0 = Date.now();
     const payload = toGeminiPayload(body);
     let done = false;
 
@@ -225,14 +310,10 @@ function callGemini(body, apiKey, tokenIndex, model) {
       hostname: 'generativelanguage.googleapis.com',
       path: `/v1beta/models/${model}:generateContent?key=${apiKey}`,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-      },
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
     };
 
     const req = https.request(options, (res) => {
-      // ⚡ Fast-fail: quota/auth langsung reject dari status HTTP
       if (res.statusCode === 429 || res.statusCode === 403) {
         done = true;
         req.destroy();
@@ -246,17 +327,26 @@ function callGemini(body, apiKey, tokenIndex, model) {
         try {
           const json = JSON.parse(raw);
           if (json.error) {
-            const code    = json.error.code;
+            const code = json.error.code;
             const message = json.error.message || '';
             if (code === 429 || code === 403 || /quota/i.test(message)) {
               return reject({ type: 'QUOTA', message, index: tokenIndex });
             }
-            // 404 atau pesan "not found / invalid" → model tidak valid
-            if (code === 404 || /not found|invalid.*model|model.*not.*exist|unsupported/i.test(message)) {
-              return reject({ type: 'API_ERROR', message, index: tokenIndex });
-            }
             return reject({ type: 'API_ERROR', message, index: tokenIndex });
           }
+
+          const ms = Date.now() - t0;
+          const usage = json.usageMetadata || {};
+          
+          recordRequestRemote({
+            model,
+            inputTokens: usage.promptTokenCount || 0,
+            outputTokens: usage.candidatesTokenCount || 0,
+            tokenIdx: tokenIndex,
+            success: true,
+            ms,
+          });
+
           resolve(json);
         } catch (e) {
           reject({ type: 'PARSE_ERROR', message: e.message, index: tokenIndex });
@@ -264,117 +354,69 @@ function callGemini(body, apiKey, tokenIndex, model) {
       });
     });
 
-    // ⏱️ Timeout: jangan tunggu terlalu lama
     req.setTimeout(REQUEST_TIMEOUT, () => {
       done = true;
       req.destroy();
       reject({ type: 'TIMEOUT', index: tokenIndex });
     });
 
-    req.on('error', e => {
-      if (!done) reject({ type: 'NETWORK_ERROR', message: e.message, index: tokenIndex });
-    });
-
+    req.on('error', e => { if (!done) reject({ type: 'NETWORK_ERROR', message: e.message, index: tokenIndex }); });
     req.write(payload);
     req.end();
   });
 }
 
 // ============================================================
-// SMART FALLBACK — race 2 token paralel + model fallback chain
+// FALLBACK & OPENAI BUILDER ENGINE
 // ============================================================
-
-// Coba satu model dengan seluruh token pool (race 2 paralel)
 async function tryModelWithPool(body, model, startIndex) {
   const total = TOKEN_POOL.length;
   let offset = 0;
 
   while (offset < total) {
     const indices = [];
-    for (let i = 0; i < 2 && offset + i < total; i++) {
-      indices.push((startIndex + offset + i) % total);
-    }
+    for (let i = 0; i < 2 && offset + i < total; i++) indices.push((startIndex + offset + i) % total);
 
-    console.log(`⚡ Racing token [${indices.join(', ')}] untuk model ${model}`);
-
-    const attempts = indices.map(idx =>
-      callGemini(body, TOKEN_POOL[idx], idx, model).then(res => ({ res, idx }))
-    );
+    const attempts = indices.map(idx => callGemini(body, TOKEN_POOL[idx], idx, model).then(res => ({ res, idx })));
 
     try {
-      const winner = await Promise.any(attempts);
-      console.log(`🏆 Token [${winner.idx}] menang dengan model ${model}`);
-      return { ...winner, model };
+      return await Promise.any(attempts);
     } catch (errs) {
-      // Cek apakah gagal karena model tidak valid (bukan quota)
-      // AggregateError berisi array errors dari setiap promise
       const errors = errs.errors || [];
-      const isModelError = errors.some(e =>
-        e?.type === 'API_ERROR' &&
-        /not found|invalid|does not exist|unsupported/i.test(e?.message || '')
-      );
-      if (isModelError) {
-        console.warn(`❌ Model "${model}" tidak valid di Gemini API, skip ke model berikutnya`);
-        return null; // sinyal untuk coba model lain
-      }
-
-      console.warn(`⚠️  Semua token [${indices.join(', ')}] gagal, lanjut batch berikutnya...`);
+      const isModelError = errors.some(e => e?.type === 'API_ERROR' && /not found|invalid|does not exist|unsupported/i.test(e?.message || ''));
+      if (isModelError) return null;
       offset += indices.length;
     }
   }
-
-  return null; // pool habis untuk model ini
+  return null;
 }
 
-// Iterasi model fallback chain
 async function callWithFallback(body, requestedModel, startIndex) {
-  // Bangun daftar model yang akan dicoba: model asli dulu, lalu chain
   const resolvedModel = resolveModel(requestedModel);
-  const modelQueue = [
-    resolvedModel,
-    ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel),
-  ];
+  const modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
 
-  for (const model of modelQueue) {
+  for (let i = 0; i < modelQueue.length; i++) {
+    const model = modelQueue[i];
     const result = await tryModelWithPool(body, model, startIndex);
-    if (result) return result;
-    console.warn(`⚠️  Model "${model}" gagal total, coba model berikutnya...`);
+    if (result) return { ...result, model };
   }
-
   throw new Error('POOL_EXHAUSTED');
 }
 
-// ============================================================
-// RESPONSE BUILDER — translate Gemini response → OpenAI format
-// ============================================================
 function buildOpenAIResponse(geminiRes, chunkId, model, stream, res) {
   const candidate = geminiRes.candidates?.[0];
-  const parts     = candidate?.content?.parts || [];
+  const parts = candidate?.content?.parts || [];
   const firstPart = parts[0];
 
-  // Tool call response
   if (firstPart?.functionCall) {
-    const toolCalls = parts
-      .filter(p => p.functionCall)
-      .map((p, i) => ({
-        id: `call_${chunkId}_${i}`,
-        type: 'function',
-        function: {
-          name: p.functionCall.name,
-          arguments: JSON.stringify(p.functionCall.args || {}),
-        },
-      }));
+    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({
+      id: `call_${chunkId}_${i}`, type: 'function',
+      function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) },
+    }));
 
     const payload = {
-      id: chunkId,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: [{
-        index: 0,
-        message: { role: 'assistant', content: null, tool_calls: toolCalls },
-        finish_reason: 'tool_calls',
-      }],
+      id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model,
+      choices: [{ index: 0, message: { role: 'assistant', content: null, tool_calls: toolCalls }, finish_reason: 'tool_calls' }],
     };
 
     if (stream) {
@@ -387,31 +429,18 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res) {
     return res.json(payload);
   }
 
-  // Normal text response
   const text = parts.map(p => p.text || '').join('');
-
   if (stream) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-
-    const chunk = {
-      id: chunkId,
-      object: 'chat.completion.chunk',
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: 'stop' }],
-    };
-    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    res.write(`data: ${JSON.stringify({ id: chunkId, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: 'stop' }] })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
   }
 
   return res.json({
-    id: chunkId,
-    object: 'chat.completion',
-    created: Math.floor(Date.now() / 1000),
-    model,
+    id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model,
     choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
     usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   });
@@ -424,154 +453,94 @@ function sendError(chunkId, model, message, stream, res) {
     res.write('data: [DONE]\n\n');
     return res.end();
   }
-  return res.json({
-    id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model,
-    choices: [{ index: 0, message: { role: 'assistant', content: message }, finish_reason: 'stop' }],
-  });
+  return res.json({ id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: message }, finish_reason: 'stop' }] });
 }
 
 // ============================================================
-// MAIN HANDLER
+// MAIN EXPRESS ROUTER HANDLER
 // ============================================================
 async function handleChat(req, res) {
-  const body      = req.body;
-  const messages  = body.messages || [];
-  const stream    = body.stream === true;
-  const model     = body.model || DEFAULT_MODEL;
+  const body = req.body;
+  const messages = body.messages || [];
+  const stream = body.stream === true;
+  const model = body.model || DEFAULT_MODEL;
   const maxTokens = body.max_tokens || 9999;
-  const chunkId   = `chatcmpl-${Date.now()}`;
+  const chunkId = `chatcmpl-${Date.now()}`;
 
-  if (!messages.length) {
-    return res.json({ choices: [{ message: { role: 'assistant', content: 'Bridge aktif!' } }] });
-  }
+  if (!messages.length) return res.json({ choices: [{ message: { role: 'assistant', content: 'Bridge aktif!' } }] });
 
-  // ── Intercept title generation (shallow request) ──────────
   const lastContent = String(messages.at(-1)?.content || '').toLowerCase();
-  if (
-    maxTokens <= 30 ||
-    lastContent.includes('title') ||
-    lastContent.includes('judul') ||
-    lastContent.includes('summarize this session')
-  ) {
-    console.log('🤫 Intercept: title generation');
-    return res.json({
-      id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model,
-      choices: [{ index: 0, message: { role: 'assistant', content: 'Sebastian Session' }, finish_reason: 'stop' }],
-    });
+  if (maxTokens <= 30 || lastContent.includes('title') || lastContent.includes('judul') || lastContent.includes('summarize this session')) {
+    return res.json({ id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: 'Sebastian Session' }, finish_reason: 'stop' }] });
   }
 
-  // ── Session key → sticky token ────────────────────────────
-  const sessionKey   = String(messages[0]?.content || '').slice(0, 60) || 'default';
-  const cachedIndex  = getSessionIndex(sessionKey);
-  const startIndex   = cachedIndex ?? globalIndex;
+  const sessionKey = String(messages[0]?.content || '').slice(0, 60) || 'default';
+  
+  const cachedIndex = await getSessionIndexRemote(sessionKey);
+  const startIndex = cachedIndex ?? globalIndex;
 
+  // Stream Log Sesi ke Dozzle
   if (cachedIndex === null) {
-    console.log(`🆕 Sesi baru, mulai dari token [${startIndex}]`);
+    console.log(`🆕 Sesi Baru [${sessionKey.slice(0, 20)}...] → Mulai dengan mengacak token pool [${startIndex}]`);
   } else {
-    console.log(`📌 Sesi lanjut, token [${startIndex}]`);
+    console.log(`📌 Sesi Lanjut [${sessionKey.slice(0, 20)}...] → Mengunci rute token pool [${startIndex}]`);
   }
 
   try {
     const { res: geminiRes, idx: winnerIdx, model: usedModel } = await callWithFallback(body, model, startIndex);
-
-    // Update sticky session & round-robin pointer
-    setSessionIndex(sessionKey, winnerIdx);
+    
+    setSessionIndexRemote(sessionKey, winnerIdx);
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
 
-    if (usedModel !== model) {
-      console.log(`ℹ️  Response menggunakan model fallback: ${usedModel} (diminta: ${model})`);
-    }
+    // Stream Log Kemenangan Balapan ke Dozzle
+    console.log(`🏆 Token [${winnerIdx}] MENANG balapan untuk model: ${usedModel}`);
 
     return buildOpenAIResponse(geminiRes, chunkId, usedModel, stream, res);
-
   } catch (err) {
-    console.error('🚨 Pool exhausted:', err.message);
+    // Stream Log Kegagalan ke Dozzle
+    console.error(`🚨 Pool Exhausted atau Gangguan Jaringan: ${err.message}`);
+
+    recordRequestRemote({ model, inputTokens: 0, outputTokens: 0, tokenIdx: -1, success: false, ms: 0 });
     return sendError(chunkId, model, 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan', stream, res);
   }
 }
 
 // ============================================================
-// EMBEDDINGS
-// ============================================================
-async function handleEmbeddings(req, res) {
-  const input = req.body.input;
-  const texts = Array.isArray(input) ? input : [input];
-
-  for (let i = 0; i < TOKEN_POOL.length; i++) {
-    const apiKey = TOKEN_POOL[(globalIndex + i) % TOKEN_POOL.length];
-    try {
-      const embeddings = await Promise.all(texts.map((text, idx) =>
-        new Promise((resolve, reject) => {
-          const payload = JSON.stringify({
-            model: 'models/gemini-embedding-2',
-            content: { parts: [{ text: String(text) }] },
-          });
-          const opts = {
-            hostname: 'generativelanguage.googleapis.com',
-            path: `/v1beta/models/gemini-embedding-2:embedContent?key=${apiKey}`,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
-          };
-          let raw = '';
-          const req = https.request(opts, r => {
-            r.on('data', c => { raw += c; });
-            r.on('end', () => {
-              try {
-                const json = JSON.parse(raw);
-                if (json.error) return reject(json.error);
-                resolve({ object: 'embedding', index: idx, embedding: json.embedding.values });
-              } catch (e) { reject(e); }
-            });
-          });
-          req.on('error', reject);
-          req.write(payload);
-          req.end();
-        })
-      ));
-
-      globalIndex = (globalIndex + i + 1) % TOKEN_POOL.length;
-      return res.json({ object: 'list', data: embeddings, model: 'gemini-embedding-2', usage: { prompt_tokens: 0, total_tokens: 0 } });
-    } catch (err) {
-      console.warn(`⚠️  Embedding token ke-${i} gagal:`, err.message || err);
-    }
-  }
-  return res.status(500).json({ error: 'Embedding failed: semua token habis' });
-}
-
-// ============================================================
-// EXPRESS APP
+// EXPRESS INITIALIZATION & MIDDLEWARES
 // ============================================================
 const app = express();
 app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use((req, _, next) => { console.log(`→ [${req.method}] ${req.url}`); next(); });
+
+// Middleware Logger Global Terintegrasi Dozzle (stdout stream)
+app.use((req, res, next) => {
+  console.log(`→ [${req.method}] ${req.url} | IP: ${req.ip}`);
+  next();
+});
+
+// Import berkas dashboard baru yang baru saja kita buat
+const initDashboardRouter = require('./dashboard.cjs');
+// Daftarkan router dashboard ke rute /dashboard
+app.use('/dashboard', initDashboardRouter(supabase));
 
 const MODELS_LIST = {
   object: 'list',
-  data: [
-    { id: 'gemini-2.5-flash',              object: 'model', created: 1700000000, owned_by: 'google' },
-    { id: 'gemini-3.5-flash',              object: 'model', created: 1700000000, owned_by: 'google' },
-    { id: 'gemini-flash-latest',           object: 'model', created: 1700000000, owned_by: 'google' },
-    { id: 'gemini-3-flash-preview',        object: 'model', created: 1700000000, owned_by: 'google' },
-    { id: 'gemini-2.5-flash-lite',         object: 'model', created: 1700000000, owned_by: 'google' },
-    { id: 'gemini-3.1-flash-lite',         object: 'model', created: 1700000000, owned_by: 'google' },
-    { id: 'gemini-3.1-flash-lite-preview', object: 'model', created: 1700000000, owned_by: 'google' },
-    { id: 'gemini-flash-lite-latest',      object: 'model', created: 1700000000, owned_by: 'google' },
-  ],
+  data: MODEL_FALLBACK_CHAIN.map(id => ({ id, object: 'model', created: 1700000000, owned_by: 'google' }))
 };
 
 app.post('/v1/chat/completions', handleChat);
-app.post('/chat/completions',    handleChat);
-app.post('/v1/embeddings',       handleEmbeddings);
-app.get('/v1/models',            (_, res) => res.json(MODELS_LIST));
-app.get('/models',               (_, res) => res.json(MODELS_LIST));
+app.post('/chat/completions', handleChat);
+app.get('/v1/models', (_, res) => res.json(MODELS_LIST));
 
-// Catch-all
+// Catch-all route fallback
 app.use((req, res) => {
   if (req.method === 'POST') return handleChat(req, res);
-  return res.json(MODELS_LIST);
+  // Jika request liar mengarah ke root biasa, kita arahkan sekalian untuk redirect ke dashboard baru
+  if (req.path === '/' || req.path === '') {
+    return res.redirect('/dashboard');
+  }
+  return res.json({ status: "Hermes Bridge Active", engine: "Sebastian Engine v10.1" });
 });
 
 app.listen(PORT, () =>
-  console.log(`🚀 Hermes Bridge aktif di http://localhost:${PORT} | ${TOKEN_POOL.length} token | model default: ${DEFAULT_MODEL}`)
+  console.log(`🚀 Hermes v10.1 (Supabase Core) running on port ${PORT} | Dashboard: http://localhost:${PORT}/dashboard`)
 );

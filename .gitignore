@@ -35,6 +35,10 @@ hooks/*
 
 # Izinkan File Costume
 !reset_sebastian.sh
+!docker-compose.yml
+!Dockerfile
+!package.json
+!dashboard.cjs
 
 # ==========================================
 # KEAMANAN KRUSIAL: JANGAN PERNAH DIHAPUS
