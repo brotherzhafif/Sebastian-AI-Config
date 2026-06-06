@@ -156,9 +156,9 @@ compression:
   enabled: true
   threshold: 0.2
   target_ratio: 0.1
-  protect_last_n: 3                 # DIUBAH: Lindungi 3 pesan terakhir saja (dari sebelumnya 5)
-  hygiene_hard_message_limit: 60    # DIUBAH: Dari 400 pesan, pangkas paksa jika riwayat menyentuh 60 pesan!
-  protect_first_n: 2                # DIUBAH: Cukup amankan 2 pesan awal (System prompt & Perkenalan awal)
+  protect_last_n: 3
+  hygiene_hard_message_limit: 60
+  protect_first_n: 2
   abort_on_summary_failure: false
 prompt_caching:
   cache_ttl: 5m
@@ -389,11 +389,11 @@ context:
 memory:
   memory_enabled: true
   user_profile_enabled: true
-  memory_char_limit: 1000       # DIUBAH: Batasi ringkasan memori jangka panjang ke 1000 karakter
-  user_char_limit: 1000         # DIUBAH: Batasi data profil user ke 1000 karakter
+  memory_char_limit: 1000
+  user_char_limit: 1000
   provider: ''
   summarize_memory: true
-  flush_min_turns: 4            # DIUBAH: Lakukan sinkronisasi memori lebih cepat (setiap 4 turns, dari sebelumnya 6)
+  flush_min_turns: 4
   nudge_interval: 10
 delegation:
   model: ''
@@ -596,7 +596,7 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 25
+_config_version: 27
 WHATSAPP_HOME_CHANNEL: 70729588568201@lid
 group_sessions_per_user: true
 platform_toolsets:
@@ -649,7 +649,7 @@ platform_toolsets:
   - web
 session_reset:
   at_hour: 7
-  idle_minutes: 15              # DIUBAH: Jika Sebastian nganggur 15 menit (dari sebelumnya 30), reset session otomatis biar fresh
+  idle_minutes: 15
   mode: both
 
 # ── Fallback Model ────────────────────────────────────────────────────
