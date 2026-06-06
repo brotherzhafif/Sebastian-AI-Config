@@ -154,10 +154,10 @@ tool_loop_guardrails:
     idempotent_no_progress: 5
 compression:
   enabled: true
-  threshold: 0.7
+  threshold: 0.2
   target_ratio: 0.1
-  protect_last_n: 2
-  hygiene_hard_message_limit: 100
+  protect_last_n: 5
+  hygiene_hard_message_limit: 400
   protect_first_n: 3
   abort_on_summary_failure: false
 prompt_caching:
