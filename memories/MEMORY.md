@@ -1,1 +1,3 @@
 * **Tool Quirks - cronjob**: Jika update model pada cronjob gagal, hapus dan buat ulang job tersebut dengan model yang benar. Untuk jadwal sekali jalan, gunakan format cron `0 H D M *` tanpa parameter `repeat` agar tidak ada konflik tipe data.
+§
+Custom Gemini gateway server code is located at /home/ubuntu/.hermes/server.cjs.
