@@ -1,11 +1,10 @@
 'use strict';
 
 // ============================================================
-// HERMES BRIDGE v10.2 (Verbose Dozzle Edition)
-// OpenAI-compatible API → Google Gemini
-// + Token Compression + Remote Logging + Live Dozzle Stream
-// + Full Verbose Thought Logging + Noise Suppression
-// + Session Reset on Exhausted (anti-stuck fix)
+// HERMES BRIDGE v10.3
+// + Adaptive Timeout
+// + Request Queue (auto-retry on exhausted)
+// + Persistent Conversation Memory (Supabase)
 // ============================================================
 
 const fs = require('fs');
@@ -32,6 +31,8 @@ const LOG = {
   out:     (...a) => console.log (`[📤 OUTPUT  ]`, ...a),
   trim:    (...a) => console.log (`[✂️  TRIM    ]`, ...a),
   db:      (...a) => console.log (`[🗄️  DB      ]`, ...a),
+  queue:   (...a) => console.log (`[⏳ QUEUE   ]`, ...a),
+  memory:  (...a) => console.log (`[💾 MEMORY  ]`, ...a),
   warn:    (...a) => console.warn (`[⚠️  WARN    ]`, ...a),
   err:     (...a) => console.error(`[🚨 ERROR   ]`, ...a),
   quota:   (...a) => console.warn (`[🚫 QUOTA   ]`, ...a),
@@ -43,7 +44,18 @@ const LOG = {
 // ============================================================
 const PORT = process.env.PORT || 9089;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const REQUEST_TIMEOUT = 10_000;
+
+// Timeout adaptive: normal vs mid-tool-chain
+const TIMEOUT_NORMAL   = 10_000;
+const TIMEOUT_TOOL     = 30_000;
+
+// Queue config
+const QUEUE_RETRY_DELAY = 15_000; // ms nunggu sebelum retry
+const QUEUE_MAX_RETRIES = 3;      // max retry sebelum benar-benar menyerah
+
+// Memory config
+const MEMORY_MAX_TURNS = 10;      // max turn yang disimpan per session
+const MEMORY_SUMMARY_THRESHOLD = 20; // summarize kalau history > N turns
 
 const LOG_SUPPRESS = new Set([
   'GET:/v1/models',
@@ -216,6 +228,152 @@ LOG.token(`${TOKEN_POOL.length} token terdeteksi: [${TOKEN_POOL.map((_, i) => `t
 let globalIndex = 0;
 
 // ============================================================
+// REQUEST QUEUE (auto-retry saat pool exhausted)
+// ============================================================
+let isExhausted = false;
+let exhaustedUntil = 0;
+const pendingQueue = [];
+
+function enqueue(fn) {
+  return new Promise((resolve, reject) => {
+    pendingQueue.push({ fn, resolve, reject, retries: 0 });
+    LOG.queue(`Request di-queue (${pendingQueue.length} pending)`);
+    processQueue();
+  });
+}
+
+async function processQueue() {
+  if (!isExhausted || Date.now() < exhaustedUntil) return;
+  if (pendingQueue.length === 0) return;
+
+  isExhausted = false;
+  LOG.queue(`Queue terbuka — memproses ${pendingQueue.length} request pending`);
+
+  while (pendingQueue.length > 0) {
+    const item = pendingQueue.shift();
+    try {
+      const result = await item.fn();
+      item.resolve(result);
+    } catch (err) {
+      item.retries++;
+      if (item.retries < QUEUE_MAX_RETRIES) {
+        LOG.queue(`Retry ${item.retries}/${QUEUE_MAX_RETRIES} untuk request yang gagal`);
+        pendingQueue.unshift(item);
+        break;
+      } else {
+        LOG.exhaust(`Request drop setelah ${QUEUE_MAX_RETRIES} retries`);
+        item.reject(err);
+      }
+    }
+  }
+}
+
+// Periodic queue processor — cek tiap 5 detik
+setInterval(() => {
+  if (pendingQueue.length > 0 && Date.now() >= exhaustedUntil) {
+    processQueue();
+  }
+}, 5_000);
+
+// ============================================================
+// PERSISTENT CONVERSATION MEMORY (Supabase)
+// ============================================================
+async function loadMemory(sessionKey) {
+  const { data, error } = await supabase
+    .from('hermes_memory')
+    .select('summary, turns')
+    .eq('session_key', sessionKey)
+    .maybeSingle();
+
+  if (error) {
+    LOG.warn(`Gagal load memory: ${error.message}`);
+    return null;
+  }
+  if (!data) return null;
+
+  LOG.memory(`Memory loaded untuk session "${sessionKey.slice(0, 20)}" — summary=${data.summary?.length || 0} chars, turns=${data.turns?.length || 0}`);
+  return data;
+}
+
+function saveMemory(sessionKey, turns, summary) {
+  // Simpan hanya N turn terakhir
+  const trimmedTurns = turns.slice(-MEMORY_MAX_TURNS);
+
+  supabase
+    .from('hermes_memory')
+    .upsert({
+      session_key: sessionKey,
+      summary: summary || null,
+      turns: trimmedTurns,
+      updated_at: new Date(),
+    }, { onConflict: 'session_key' })
+    .then(({ error }) => {
+      if (error) LOG.err(`Gagal save memory: ${error.message}`);
+      else LOG.memory(`Memory saved → session="${sessionKey.slice(0, 20)}" turns=${trimmedTurns.length}`);
+    });
+}
+
+function buildMemoryInjection(memoryData) {
+  if (!memoryData) return '';
+
+  const parts = [];
+  if (memoryData.summary) {
+    parts.push(`## Ringkasan Percakapan Sebelumnya\n${memoryData.summary}`);
+  }
+  if (memoryData.turns?.length) {
+    parts.push(`## Konteks Turn Terakhir\n${memoryData.turns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+  }
+
+  return parts.length ? `\n\n---\n\n${parts.join('\n\n')}` : '';
+}
+
+async function summarizeIfNeeded(sessionKey, turns, model) {
+  if (turns.length < MEMORY_SUMMARY_THRESHOLD) return null;
+
+  LOG.memory(`History panjang (${turns.length} turns) → summarize ke Gemini`);
+
+  const summaryPrompt = `Rangkum percakapan berikut secara singkat dalam 3-5 kalimat, fokus pada hal-hal penting yang perlu diingat:\n\n${turns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
+
+  // Panggil Gemini langsung untuk summarize, tidak melalui full pipeline
+  try {
+    const payload = JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }]
+    });
+
+    const apiKey = TOKEN_POOL[globalIndex % TOKEN_POOL.length];
+    const summary = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'generativelanguage.googleapis.com',
+        path: `/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      };
+      const req = https.request(options, (res) => {
+        let raw = '';
+        res.on('data', c => { raw += c; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(raw);
+            const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            resolve(text);
+          } catch { reject(new Error('Parse error')); }
+        });
+      });
+      req.setTimeout(15_000, () => { req.destroy(); reject(new Error('Timeout')); });
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+
+    LOG.memory(`Summary generated: "${summary.slice(0, 80)}..."`);
+    return summary;
+  } catch (e) {
+    LOG.warn(`Summarize gagal: ${e.message}`);
+    return null;
+  }
+}
+
+// ============================================================
 // SESSION MANAGER (Supabase)
 // ============================================================
 async function getSessionIndexRemote(key) {
@@ -260,9 +418,9 @@ function sanitizeSchema(obj) {
 }
 
 // ============================================================
-// toGeminiPayload — PATCHED (strip functionCall dari history)
+// PAYLOAD TRANSFORMER (OpenAI → Gemini)
 // ============================================================
-function toGeminiPayload(body, reqId) {
+function toGeminiPayload(body, reqId, memoryInjection) {
   const rawMessages = body.messages || [];
   const systemMessages = rawMessages.filter(m => m.role === 'system');
   let chatMessages    = rawMessages.filter(m => m.role !== 'system');
@@ -297,7 +455,11 @@ function toGeminiPayload(body, reqId) {
 
     if (msg.role === 'system') {
       hasSystem = true;
-      const text = PERSONA ? `${PERSONA}\n\n---\n\n${msg.content || ''}` : (msg.content || '');
+      // Inject memory ke system message kalau ada
+      const memoryPart = memoryInjection || '';
+      const text = PERSONA
+        ? `${PERSONA}\n\n---\n\n${msg.content || ''}${memoryPart}`
+        : `${msg.content || ''}${memoryPart}`;
       contents.push({ role: 'user', parts: [{ text }] });
       continue;
     }
@@ -306,14 +468,9 @@ function toGeminiPayload(body, reqId) {
     if (msg.content) parts.push({ text: msg.content });
 
     if (msg.tool_calls) {
-      // PATCH: functionCall TIDAK di-replay ke Gemini saat ada di history
-      // Gemini 2.5+ wajib thought_signature yang tidak kita simpan → 400 error
-      // Context sudah cukup dari functionResponse di turn berikutnya
       LOG.tool(`[${reqId}] Tool call history stripped: [${msg.tool_calls.map(t => t.function?.name).join(', ')}] (tidak di-replay ke Gemini)`);
     }
 
-    // Skip push kalau parts kosong (assistant turn yang pure tool_call)
-    // Gemini akan error kalau dikasih turn dengan parts=[]
     if (parts.length > 0) {
       contents.push({ role: msg.role === 'assistant' ? 'model' : 'user', parts });
     } else {
@@ -323,7 +480,8 @@ function toGeminiPayload(body, reqId) {
 
   if (!hasSystem && PERSONA) {
     LOG.think(`[${reqId}] Inject PERSONA sebagai turn pertama`);
-    contents.unshift({ role: 'user', parts: [{ text: PERSONA }] });
+    const memoryPart = memoryInjection || '';
+    contents.unshift({ role: 'user', parts: [{ text: `${PERSONA}${memoryPart}` }] });
   }
 
   if (body.tools?.length) {
@@ -345,15 +503,15 @@ function toGeminiPayload(body, reqId) {
 }
 
 // ============================================================
-// GEMINI HTTP CALL
+// GEMINI HTTP CALL — adaptive timeout
 // ============================================================
-function callGemini(body, apiKey, tokenIndex, model, reqId) {
+function callGemini(body, apiKey, tokenIndex, model, reqId, timeoutMs) {
   return new Promise((resolve, reject) => {
     const t0 = Date.now();
-    const payload = toGeminiPayload(body, reqId);
+    const payload = toGeminiPayload(body, reqId, body._memoryInjection);
     let done = false;
 
-    LOG.race(`[${reqId}] Firing tok#${tokenIndex} → ${model}`);
+    LOG.race(`[${reqId}] Firing tok#${tokenIndex} → ${model} (timeout=${timeoutMs}ms)`);
 
     const options = {
       hostname: 'generativelanguage.googleapis.com',
@@ -404,10 +562,10 @@ function callGemini(body, apiKey, tokenIndex, model, reqId) {
       });
     });
 
-    req.setTimeout(REQUEST_TIMEOUT, () => {
+    req.setTimeout(timeoutMs, () => {
       done = true;
       req.destroy();
-      LOG.warn(`[${reqId}] tok#${tokenIndex} TIMEOUT (${REQUEST_TIMEOUT}ms)`);
+      LOG.warn(`[${reqId}] tok#${tokenIndex} TIMEOUT (${timeoutMs}ms)`);
       reject({ type: 'TIMEOUT', index: tokenIndex });
     });
 
@@ -424,9 +582,9 @@ function callGemini(body, apiKey, tokenIndex, model, reqId) {
 }
 
 // ============================================================
-// tryModelWithPool — PATCHED (immediate skip thought_signature)
+// TOKEN POOL LOOP
 // ============================================================
-async function tryModelWithPool(body, model, startIndex, reqId) {
+async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
   const total = TOKEN_POOL.length;
   const MAX_ROUNDS = 2;
 
@@ -441,7 +599,7 @@ async function tryModelWithPool(body, model, startIndex, reqId) {
       LOG.race(`[${reqId}] Batch: [${indices.map(i => `tok#${i}`).join(' vs ')}]`);
 
       const attempts = indices.map(idx =>
-        callGemini(body, TOKEN_POOL[idx], idx, model, reqId).then(res => ({ res, idx }))
+        callGemini(body, TOKEN_POOL[idx], idx, model, reqId, timeoutMs).then(res => ({ res, idx }))
       );
 
       try {
@@ -451,9 +609,6 @@ async function tryModelWithPool(body, model, startIndex, reqId) {
         const reasons = errors.map(e => `tok#${e?.index}:${e?.type}`).join(', ');
         LOG.warn(`[${reqId}] Batch gagal: [${reasons}]`);
 
-        // PATCH: thought_signature = structural error, bukan quota
-        // Tidak ada gunanya retry token lain karena payload-nya yang salah
-        // Skip model ini langsung
         const isSignatureError = errors.some(e =>
           e?.type === 'API_ERROR' && /thought_signature/i.test(e?.message || '')
         );
@@ -462,7 +617,6 @@ async function tryModelWithPool(body, model, startIndex, reqId) {
           return null;
         }
 
-        // Model tidak dikenal Gemini → skip
         const isModelError = errors.some(e =>
           e?.type === 'API_ERROR' && /not found|invalid|does not exist|unsupported/i.test(e?.message || '')
         );
@@ -488,7 +642,7 @@ async function tryModelWithPool(body, model, startIndex, reqId) {
 // ============================================================
 // FALLBACK CHAIN
 // ============================================================
-async function callWithFallback(body, requestedModel, startIndex, reqId) {
+async function callWithFallback(body, requestedModel, startIndex, reqId, timeoutMs) {
   const resolvedModel = resolveModel(requestedModel);
   const modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
 
@@ -498,7 +652,7 @@ async function callWithFallback(body, requestedModel, startIndex, reqId) {
     const model = modelQueue[i];
     LOG.fallback(`[${reqId}] Trying model ${i + 1}/${modelQueue.length}: "${model}"`);
 
-    const result = await tryModelWithPool(body, model, startIndex, reqId);
+    const result = await tryModelWithPool(body, model, startIndex, reqId, timeoutMs);
     if (result) return { ...result, model };
 
     LOG.fallback(`[${reqId}] "${model}" gagal → next`);
@@ -557,7 +711,7 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
 }
 
 function sendError(chunkId, model, message, stream, res, reqId) {
-  LOG.err(`[${reqId}] Sending error to client: "${message}"`);
+  LOG.err(`[${reqId}] Sending error: "${message}"`);
   if (stream) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.write(`data: ${JSON.stringify({ id: chunkId, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, delta: { content: message }, finish_reason: 'stop' }] })}\n\n`);
@@ -598,21 +752,61 @@ async function handleChat(req, res) {
     });
   }
 
+  // Adaptive timeout — kalau ada tool result di history, kasih waktu lebih
+  const hasToolResult = messages.some(m => m.role === 'tool' || m.role === 'function');
+  const timeoutMs = hasToolResult ? TIMEOUT_TOOL : TIMEOUT_NORMAL;
+  if (hasToolResult) LOG.think(`[${reqId}] Mid-tool-chain detected → timeout=${timeoutMs}ms`);
+
   const sessionKey = String(messages[0]?.content || '').slice(0, 60) || 'default';
+
+  // Load memory dari Supabase
+  const memoryData = await loadMemory(sessionKey);
+  const memoryInjection = buildMemoryInjection(memoryData);
+  if (memoryInjection) LOG.memory(`[${reqId}] Memory injected (${memoryInjection.length} chars)`);
+
+  // Attach memory injection ke body biar bisa diakses di callGemini
+  body._memoryInjection = memoryInjection;
+
   const cachedIndex = await getSessionIndexRemote(sessionKey);
   const startIndex = cachedIndex ?? globalIndex;
 
   if (cachedIndex === null) {
-    LOG.session(`[${reqId}] 🆕 Sesi baru "${sessionKey.slice(0, 20)}..." → startIndex=tok#${startIndex} (globalIndex)`);
+    LOG.session(`[${reqId}] 🆕 Sesi baru "${sessionKey.slice(0, 20)}..." → startIndex=tok#${startIndex}`);
   } else {
     LOG.session(`[${reqId}] 📌 Sesi lama "${sessionKey.slice(0, 20)}..." → locked ke tok#${startIndex}`);
   }
 
+  // Kalau sedang exhausted, masuk queue
+  if (isExhausted && Date.now() < exhaustedUntil) {
+    LOG.queue(`[${reqId}] Pool sedang exhausted → masuk queue (${Math.ceil((exhaustedUntil - Date.now()) / 1000)}s lagi)`);
+    try {
+      const result = await enqueue(() => callWithFallback(body, model, startIndex, reqId, timeoutMs));
+      setSessionIndexRemote(sessionKey, result.idx);
+      globalIndex = (result.idx + 1) % TOKEN_POOL.length;
+      return buildOpenAIResponse(result.res, chunkId, result.model, stream, res, reqId);
+    } catch (err) {
+      return sendError(chunkId, model, 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan', stream, res, reqId);
+    }
+  }
+
   try {
-    const { res: geminiRes, idx: winnerIdx, model: usedModel } = await callWithFallback(body, model, startIndex, reqId);
+    const { res: geminiRes, idx: winnerIdx, model: usedModel } = await callWithFallback(body, model, startIndex, reqId, timeoutMs);
 
     setSessionIndexRemote(sessionKey, winnerIdx);
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
+
+    // Simpan turn ke memory (hanya text turn, skip tool internals)
+    const newTurns = messages
+      .filter(m => m.role === 'user' || (m.role === 'assistant' && m.content))
+      .map(m => ({ role: m.role, content: String(m.content || '').slice(0, 500) }));
+
+    const existingTurns = memoryData?.turns || [];
+    const allTurns = [...existingTurns, ...newTurns];
+
+    // Summarize kalau terlalu panjang, lalu simpan
+    const summary = await summarizeIfNeeded(sessionKey, allTurns, usedModel);
+    const finalTurns = summary ? [] : allTurns; // Reset turns kalau sudah di-summarize
+    saveMemory(sessionKey, finalTurns, summary || memoryData?.summary);
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
     return buildOpenAIResponse(geminiRes, chunkId, usedModel, stream, res, reqId);
@@ -620,11 +814,13 @@ async function handleChat(req, res) {
   } catch (err) {
     LOG.exhaust(`[${reqId}] ❌ POOL_EXHAUSTED: ${err.message}`);
 
-    // Anti-stuck fix: geser session ke token berikutnya biar tidak kunci di token mati
-    const nextIndex = (startIndex + 1) % TOKEN_POOL.length;
-    LOG.session(`[${reqId}] Session reset → geser ke tok#${nextIndex} untuk request berikutnya`);
-    setSessionIndexRemote(sessionKey, nextIndex);
+    // Set exhausted state → queue akan buka setelah delay
+    isExhausted = true;
+    exhaustedUntil = Date.now() + QUEUE_RETRY_DELAY;
+    LOG.queue(`Pool exhausted → queue buka dalam ${QUEUE_RETRY_DELAY / 1000}s`);
 
+    const nextIndex = (startIndex + 1) % TOKEN_POOL.length;
+    setSessionIndexRemote(sessionKey, nextIndex);
     recordRequestRemote({ model, inputTokens: 0, outputTokens: 0, tokenIdx: -1, success: false, ms: 0 });
     return sendError(chunkId, model, 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan', stream, res, reqId);
   }
@@ -659,11 +855,13 @@ app.get('/v1/models', (_, res) => res.json(MODELS_LIST));
 app.use((req, res) => {
   if (req.method === 'POST') return handleChat(req, res);
   if (req.path === '/' || req.path === '') return res.redirect('/dashboard');
-  return res.json({ status: 'Hermes Bridge Active', engine: 'Sebastian Engine v10.2' });
+  return res.json({ status: 'Hermes Bridge Active', engine: 'Sebastian Engine v10.3' });
 });
 
 app.listen(PORT, () => {
-  LOG.boot(`Hermes v10.2 running on :${PORT}`);
+  LOG.boot(`Hermes v10.3 running on :${PORT}`);
   LOG.boot(`Dashboard → http://localhost:${PORT}/dashboard`);
   LOG.boot(`Pool: ${TOKEN_POOL.length} tokens | Default: ${DEFAULT_MODEL}`);
+  LOG.boot(`Timeout: normal=${TIMEOUT_NORMAL}ms tool-chain=${TIMEOUT_TOOL}ms`);
+  LOG.boot(`Queue: retry delay=${QUEUE_RETRY_DELAY}ms max retries=${QUEUE_MAX_RETRIES}`);
 });
