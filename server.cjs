@@ -52,18 +52,17 @@ const supabase = createClient(
 );
 
 const MODEL_FALLBACK_CHAIN = [
-  'gemini-2.5-flash','gemini-3.5-flash','gemini-flash-latest',
-  'gemini-3-flash-preview','gemini-2.5-flash-lite','gemini-3.1-flash-lite',
-  'gemini-3.1-flash-lite-preview','gemini-flash-lite-latest',
+  'gemini-2.5-flash',
+  'gemini-3.5-flash',
+  'gemini-flash-latest',
+  'gemini-3-flash-preview',
 ];
 
 const MODEL_ALIASES = {
   'gemini-3-flash-live':  'gemini-flash-latest',
   'gemini-3.5-pro':       'gemini-2.5-flash',
   'gemini-2.5-pro':       'gemini-2.5-flash',
-  'gemini-3.5-flash-lite':'gemini-2.5-flash-lite',
   'gemini-flash':         'gemini-flash-latest',
-  'gemini-flash-lite':    'gemini-flash-lite-latest',
 };
 
 function resolveModel(requested) {
