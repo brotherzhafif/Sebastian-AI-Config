@@ -370,19 +370,29 @@ function callGemini(body, apiKey, tokenIndex, model, reqId, timeoutMs) {
               LOG.quota(`[${reqId}] tok#${tokenIndex} quota error: ${message.slice(0, 80)}`);
               return reject({ type: 'QUOTA', message, index: tokenIndex });
             }
-            // ✅ [FIX-3] thought_signature → log warning, retry normally
             if (/thought_signature/i.test(message)) {
-              LOG.warn(`[${reqId}] tok#${tokenIndex} thought_signature error (should be rare after FIX-1): ${message.slice(0, 120)}`);
+              LOG.warn(`[${reqId}] tok#${tokenIndex} thought_signature error: ${message.slice(0, 120)}`);
               return reject({ type: 'API_ERROR', message, index: tokenIndex });
             }
             LOG.err(`[${reqId}] tok#${tokenIndex} API error (${code}): ${message.slice(0, 120)}`);
             return reject({ type: 'API_ERROR', message, index: tokenIndex });
           }
+
+          // VALIDASI STRUKTUR KONTEN NYATA SEBELUM MENCATAT LOG SUKSES
+          const hasContent = json.candidates?.[0]?.content?.parts?.length > 0;
+          if (!hasContent) {
+            LOG.warn(`[${reqId}] tok#${tokenIndex} Mengembalikan JSON valid tapi tanpa konten/kandidat text.`);
+            return reject({ type: 'EMPTY_CONTENT', message: 'No content candidates', index: tokenIndex });
+          }
+
           const ms = Date.now() - t0;
           const usage = json.usageMetadata || {};
           const inTok = usage.promptTokenCount || 0;
           const outTok = usage.candidatesTokenCount || 0;
+          
           LOG.win(`[${reqId}] tok#${tokenIndex} ✓ ${ms}ms | in=${inTok} out=${outTok} tokens`);
+          
+          // Catat ke Supabase hanya jika benar-benar lolos validasi konten riyal!
           recordRequestRemote({ model, inputTokens: inTok, outputTokens: outTok, tokenIdx: tokenIndex, success: true, ms });
           resolve(json);
         } catch (e) {
