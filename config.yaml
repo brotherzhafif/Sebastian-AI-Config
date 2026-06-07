@@ -19,10 +19,10 @@ credential_pool_strategies:
 toolsets:
 - hermes-cli
 agent:
-  max_turns: 90
+  max_turns: 30
   gateway_timeout: 1800
   restart_drain_timeout: 300
-  api_max_retries: 5
+  api_max_retries: 2
   service_tier: ''
   tool_use_enforcement: autoes
   task_completion_guidance: true
@@ -136,14 +136,14 @@ checkpoints:
   retention_days: 7
   delete_orphans: true
   min_interval_hours: 24
-file_read_max_chars: 100000
+file_read_max_chars: 30000
 tool_output:
   max_bytes: 50000
-  max_lines: 2000
+  max_lines: 500
   max_line_length: 2000
 tool_loop_guardrails:
   warnings_enabled: true
-  hard_stop_enabled: false
+  hard_stop_enabled: true
   warn_after:
     exact_failure: 2
     same_tool_failure: 3

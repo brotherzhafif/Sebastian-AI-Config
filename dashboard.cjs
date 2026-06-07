@@ -167,11 +167,11 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         
         <label style="font-size:12px;color:var(--muted)">Model:</label>
         <select id="model-sel" onchange="fetchAnalytics()">
-            <option value="all">Semua Model</option>
-            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-            <option value="gemini-3.5-flash">gemini-3.5-flash</option>
-            <option value="gemini-flash-latest">gemini-flash-latest</option>
-            <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+          <option value="all">Semua Model</option>
+          <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+          <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+          <option value="gemini-flash-latest">gemini-flash-latest</option>
+          <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
         </select>
 
         <label style="font-size:12px;color:var(--muted)">Pecah:</label>
@@ -227,11 +227,11 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
 
         // Map Palette Warna Unik per Model AI agar konsisten
         const modelColors = {
-            'gemini-2.5-flash': '#6366f1',
-            'gemini-3.5-flash': '#3b82f6',
-            'gemini-flash-latest': '#22c55e',
-            'gemini-2.5-flash-lite': '#f59e0b',
-            'other': '#64748b'
+          'gemini-2.5-flash': '#6366f1',       // Indigo
+          'gemini-3.5-flash': '#3b82f6',       // Blue
+          'gemini-flash-latest': '#22c55e',    // Green
+          'gemini-3-flash-preview': '#06b6d4', // Cyan
+          'other': '#64748b'                   // Slate Gray
         };
 
         function toggleRangeInputs() {
@@ -498,14 +498,15 @@ function initDashboardRouter(supabase) {
         avg_latency: data.length ? (data.reduce((acc, r) => acc + (r.latency_ms || 0), 0) / data.length) : 0
       };
 
-      // Hitung Sebaran Pangsa Pasar Model AI (Untuk Canvas Pie Chart)
+      // Hitung Sebaran Pangsa Pasar Model AI (Sesuai MODEL_FALLBACK_CHAIN)
       const modelShare = {
         'gemini-2.5-flash': 0,
         'gemini-3.5-flash': 0,
         'gemini-flash-latest': 0,
-        'gemini-2.5-flash-lite': 0,
+        'gemini-3-flash-preview': 0,
         'other': 0
       };
+
       data.forEach(r => {
         if (modelShare[r.model] !== undefined) modelShare[r.model]++;
         else modelShare['other']++;

@@ -205,7 +205,12 @@ function buildMemoryInjection(memoryData) {
   if (!memoryData) return '';
   const parts = [];
   if (memoryData.summary) parts.push(`## Ringkasan Percakapan Sebelumnya\n${memoryData.summary}`);
-  if (memoryData.turns?.length) parts.push(`## Konteks Turn Terakhir\n${memoryData.turns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+  
+  // OPTIMASI: Ambil hanya 3 baris turn terakhir untuk menghemat token input hingga 70%
+  if (memoryData.turns?.length) {
+    const optimizedTurns = memoryData.turns.slice(-3);
+    parts.push(`## Konteks Turn Terakhir\n${optimizedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+  }
   return parts.length ? `\n\n---\n\n${parts.join('\n\n')}` : '';
 }
 
@@ -533,7 +538,7 @@ async function handleChat(req, res) {
     setSessionIndexRemote(sessionKey, winnerIdx);
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
 
-    const newTurns = messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.content)).map(m => ({ role: m.role, content: String(m.content || '').slice(0, 500) }));
+    const newTurns = messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.content)).map(m => ({ role: m.role, content: String(m.content || '').slice(0, 200) }));
     const allTurns = [...(memoryData?.turns || []), ...newTurns];
     const summary = await summarizeIfNeeded(sessionKey, allTurns, usedModel);
     saveMemory(sessionKey, summary ? [] : allTurns, summary || memoryData?.summary);
