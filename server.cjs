@@ -33,9 +33,8 @@ const PORT = process.env.PORT || 9089;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const TIMEOUT_NORMAL = 20_000;
 const TIMEOUT_TOOL   = 30_000;
-const QUEUE_RETRY_DELAY = 15_000;
-const QUEUE_MAX_RETRIES = 3;
-const MEMORY_MAX_TURNS = 10;
+const MEMORY_MAX_TURNS = 4;
+const MEMORY_TRIM = 60;
 const MEMORY_SUMMARY_THRESHOLD = 20;
 
 const LOG_SUPPRESS = new Set(['GET:/v1/models', 'GET:/v1/models/']);
@@ -153,39 +152,6 @@ if (TOKEN_POOL.length === 0) { LOG.err('Tidak ada token API ditemukan di .env!')
 LOG.token(`${TOKEN_POOL.length} token terdeteksi: [${TOKEN_POOL.map((_, i) => `tok#${i}`).join(', ')}]`);
 
 let globalIndex = 0;
-let isExhausted = false;
-let exhaustedUntil = 0;
-const pendingQueue = [];
-
-function enqueue(fn) {
-  return new Promise((resolve, reject) => {
-    if (pendingQueue.length >= 50) {
-      LOG.warn('Queue penuh (50) → reject');
-      return reject(new Error('QUEUE_FULL'));
-    }
-    pendingQueue.push({ fn, resolve, reject, retries: 0 });
-    LOG.queue(`Request di-queue (${pendingQueue.length} pending)`);
-    processQueue();
-  });
-}
-
-async function processQueue() {
-  if (isExhausted && Date.now() < exhaustedUntil) return;
-  if (pendingQueue.length === 0) return;
-  isExhausted = false;
-  LOG.queue(`Queue terbuka — memproses ${pendingQueue.length} request pending`);
-  while (pendingQueue.length > 0) {
-    const item = pendingQueue.shift();
-    try { const result = await item.fn(); item.resolve(result); }
-    catch (err) {
-      item.retries++;
-      if (item.retries < QUEUE_MAX_RETRIES) { LOG.queue(`Retry ${item.retries}/${QUEUE_MAX_RETRIES}`); pendingQueue.unshift(item); break; }
-      else { LOG.exhaust(`Request drop setelah ${QUEUE_MAX_RETRIES} retries`); item.reject(err); }
-    }
-  }
-}
-
-setInterval(() => { if (pendingQueue.length > 0 && Date.now() >= exhaustedUntil) processQueue(); }, 5_000);
 
 async function loadMemory(sessionKey) {
   const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 menit
@@ -466,19 +432,11 @@ async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
   return null;
 }
 
-const THINKING_MODELS = new Set(['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3-flash-preview']);
-
 async function callWithFallback(body, requestedModel, startIndex, reqId, timeoutMs) {
   const resolvedModel = resolveModel(requestedModel);
   let modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
 
-  if (body._isToolChain) {
-    const before = modelQueue.length;
-    modelQueue = modelQueue.filter(m => !THINKING_MODELS.has(m));
-    LOG.think(`[${reqId}] Tool chain → skip thinking models (${before} → ${modelQueue.length}): ${modelQueue.join(' → ')}`);
-  } else {
-    LOG.think(`[${reqId}] Model queue: ${modelQueue.join(' → ')}`);
-  }
+  LOG.think(`[${reqId}] Model queue: ${modelQueue.join(' → ')}`);
 
   for (let i = 0; i < modelQueue.length; i++) {
     const model = modelQueue[i];
@@ -524,9 +482,14 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
 function sendError(chunkId, model, message, stream, res, reqId) {
   LOG.err(`[${reqId}] Sending error: "${message}"`);
   if (stream) {
-    res.setHeader('Content-Type', 'text/event-stream');
+    if (!res.headersSent) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+    }
     res.write(`data: ${JSON.stringify({ id: chunkId, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, delta: { content: message }, finish_reason: 'stop' }] })}\n\n`);
-    res.write('data: [DONE]\n\n'); return res.end();
+    res.write('data: [DONE]\n\n');
+    return res.end();
   }
   return res.json({ id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: message }, finish_reason: 'stop' }] });
 }
@@ -575,8 +538,6 @@ async function handleChat(req, res) {
   const timeoutMs = hasToolChain ? TIMEOUT_TOOL : TIMEOUT_NORMAL;
   if (hasToolChain) LOG.think(`[${reqId}] Tool chain detected → timeout=${timeoutMs}ms`);
 
-  body._isToolChain = hasToolChain;
-
   const sessionKey = hashKey(sysContent.slice(0, 200));
   const firstUserMsg = String(messages.find(m => m.role === 'user')?.content || '');
   const isCronjob = /\[IMPORTANT:.*cron job/i.test(firstUserMsg);
@@ -593,23 +554,22 @@ async function handleChat(req, res) {
   if (cachedIndex === null) LOG.session(`[${reqId}] 🆕 Sesi baru "${sessionKey.slice(0, 20)}..." → startIndex=tok#${startIndex}`);
   else LOG.session(`[${reqId}] 📌 Sesi lama "${sessionKey.slice(0, 20)}..." → locked ke tok#${startIndex}`);
 
-  if (isExhausted && Date.now() < exhaustedUntil) {
-    LOG.queue(`[${reqId}] Pool sedang exhausted → masuk queue (${Math.ceil((exhaustedUntil - Date.now()) / 1000)}s lagi)`);
-    try {
-      const result = await enqueue(() => callWithFallback(body, model, startIndex, reqId, timeoutMs));
-      setSessionIndexRemote(sessionKey, result.idx);
-      globalIndex = (result.idx + 1) % TOKEN_POOL.length;
-      return buildOpenAIResponse(result.res, chunkId, result.model, stream, res, reqId);
-    } catch (err) { return sendError(chunkId, model, ERROR_MSG, stream, res, reqId); }
+  let heartbeat;
+  if (stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    heartbeat = setInterval(() => res.write(': ping\n\n'), 5000);
   }
 
   try {
     const { res: geminiRes, idx: winnerIdx, model: usedModel } = await callWithFallback(body, model, startIndex, reqId, timeoutMs);
+    if (heartbeat) clearInterval(heartbeat);
     setSessionIndexRemote(sessionKey, winnerIdx);
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
 
     const HERMES_META_PATTERN = /<userRequest>|<environment_info>|<workspace_info>|<editorContext>|<attachments>|<context>|<reminderInstructions>/i;
-
+    
     if (!isCronjob) {
       const newTurns = messages
         .filter(m => 
@@ -617,16 +577,13 @@ async function handleChat(req, res) {
           m.content !== ERROR_MSG &&
           !HERMES_META_PATTERN.test(m.content || '')
         )
-        .map(m => ({ role: m.role, content: String(m.content || '').slice(0, 200) }));
+        .map(m => ({ role: m.role, content: String(m.content || '').slice(0, MEMORY_TRIM) }));
       
       const existingTurns = memoryData?.turns || [];
-      const lastTurn = existingTurns.at(-1);
-      const dedupedNew = newTurns.filter((t, i) => {
-        if (i === 0 && lastTurn?.content === t.content && lastTurn?.role === t.role) return false;
-        return true;
-      });
+      const existingContents = new Set(existingTurns.map(t => t.role + ':' + t.content));
+      const dedupedNew = newTurns.filter(t => !existingContents.has(t.role + ':' + t.content));
 
-      const allTurns = [...existingTurns, ...dedupedNew];
+      const allTurns = [...existingTurns, ...dedupedNew].slice(-MEMORY_MAX_TURNS);
       const summary = await summarizeIfNeeded(sessionKey, allTurns, usedModel);
       saveMemory(sessionKey, summary ? [] : allTurns, summary || memoryData?.summary);
     }
@@ -635,10 +592,8 @@ async function handleChat(req, res) {
     return buildOpenAIResponse(geminiRes, chunkId, usedModel, stream, res, reqId);
 
   } catch (err) {
+    if (heartbeat) clearInterval(heartbeat);
     LOG.exhaust(`[${reqId}] ❌ POOL_EXHAUSTED: ${err.message}`);
-    isExhausted = true;
-    exhaustedUntil = Date.now() + QUEUE_RETRY_DELAY;
-    LOG.queue(`Pool exhausted → queue buka dalam ${QUEUE_RETRY_DELAY / 1000}s`);
     setSessionIndexRemote(sessionKey, (startIndex + 1) % TOKEN_POOL.length);
     recordRequestRemote({ model, inputTokens: 0, outputTokens: 0, tokenIdx: -1, success: false, ms: 0 });
     return sendError(chunkId, model, ERROR_MSG, stream, res, reqId);
@@ -668,5 +623,4 @@ app.listen(PORT, () => {
   LOG.boot(`Dashboard → http://localhost:${PORT}/dashboard`);
   LOG.boot(`Pool: ${TOKEN_POOL.length} tokens | Default: ${DEFAULT_MODEL}`);
   LOG.boot(`Timeout: normal=${TIMEOUT_NORMAL}ms tool-chain=${TIMEOUT_TOOL}ms`);
-  LOG.boot(`Queue: retry delay=${QUEUE_RETRY_DELAY}ms max retries=${QUEUE_MAX_RETRIES}`);
 });
