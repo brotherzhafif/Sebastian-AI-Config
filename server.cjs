@@ -513,7 +513,6 @@ async function handleChat(req, res) {
     return res.json({ id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: 'Sebastian Session' }, finish_reason: 'stop' }] });
   }
 
-  // ✅ [FIX-2] Cek seluruh history, bukan hanya last message
   const hasToolChain = messages.some(m =>
     m.role === 'tool' ||
     m.role === 'function' ||
@@ -523,9 +522,12 @@ async function handleChat(req, res) {
   if (hasToolChain) LOG.think(`[${reqId}] Tool chain detected → timeout=${timeoutMs}ms`);
 
   const sessionKey = String(messages[0]?.content || '').slice(0, 60) || 'default';
-  const memoryData = await loadMemory(sessionKey);
-  const memoryInjection = buildMemoryInjection(memoryData);
+  const isCronjob = messages.length === 1 && messages[0]?.role === 'user';
+
+  const memoryData = isCronjob ? null : await loadMemory(sessionKey);
+  const memoryInjection = isCronjob ? '' : buildMemoryInjection(memoryData);
   if (memoryInjection) LOG.memory(`[${reqId}] Memory injected (${memoryInjection.length} chars)`);
+  else if (isCronjob) LOG.memory(`[${reqId}] Cronjob detected → skip memory injection`);
   body._memoryInjection = memoryInjection;
 
   const cachedIndex = await getSessionIndexRemote(sessionKey);
@@ -548,10 +550,12 @@ async function handleChat(req, res) {
     setSessionIndexRemote(sessionKey, winnerIdx);
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
 
-    const newTurns = messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.content)).map(m => ({ role: m.role, content: String(m.content || '').slice(0, 200) }));
-    const allTurns = [...(memoryData?.turns || []), ...newTurns];
-    const summary = await summarizeIfNeeded(sessionKey, allTurns, usedModel);
-    saveMemory(sessionKey, summary ? [] : allTurns, summary || memoryData?.summary);
+    if (!isCronjob) {
+      const newTurns = messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.content)).map(m => ({ role: m.role, content: String(m.content || '').slice(0, 200) }));
+      const allTurns = [...(memoryData?.turns || []), ...newTurns];
+      const summary = await summarizeIfNeeded(sessionKey, allTurns, usedModel);
+      saveMemory(sessionKey, summary ? [] : allTurns, summary || memoryData?.summary);
+    }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
     return buildOpenAIResponse(geminiRes, chunkId, usedModel, stream, res, reqId);
