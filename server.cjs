@@ -565,6 +565,7 @@ async function handleChat(req, res) {
   try {
     const { res: geminiRes, idx: winnerIdx, model: usedModel } = await callWithFallback(body, model, startIndex, reqId, timeoutMs);
     if (heartbeat) clearInterval(heartbeat);
+    if (res.writableEnded) return;
     setSessionIndexRemote(sessionKey, winnerIdx);
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
 
@@ -593,6 +594,7 @@ async function handleChat(req, res) {
 
   } catch (err) {
     if (heartbeat) clearInterval(heartbeat);
+    if (res.writableEnded) return;
     LOG.exhaust(`[${reqId}] ❌ POOL_EXHAUSTED: ${err.message}`);
     setSessionIndexRemote(sessionKey, (startIndex + 1) % TOKEN_POOL.length);
     recordRequestRemote({ model, inputTokens: 0, outputTokens: 0, tokenIdx: -1, success: false, ms: 0 });
