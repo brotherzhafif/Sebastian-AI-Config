@@ -31,7 +31,7 @@ const LOG = {
 
 const PORT = process.env.PORT || 9089;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const TIMEOUT_NORMAL = 10_000;
+const TIMEOUT_NORMAL = 20_000;
 const TIMEOUT_TOOL   = 30_000;
 const QUEUE_RETRY_DELAY = 15_000;
 const QUEUE_MAX_RETRIES = 3;
@@ -159,6 +159,10 @@ const pendingQueue = [];
 
 function enqueue(fn) {
   return new Promise((resolve, reject) => {
+    if (pendingQueue.length >= 50) {
+      LOG.warn('Queue penuh (50) → reject');
+      return reject(new Error('QUEUE_FULL'));
+    }
     pendingQueue.push({ fn, resolve, reject, retries: 0 });
     LOG.queue(`Request di-queue (${pendingQueue.length} pending)`);
     processQueue();
@@ -166,7 +170,7 @@ function enqueue(fn) {
 }
 
 async function processQueue() {
-  if (!isExhausted || Date.now() < exhaustedUntil) return;
+  if (isExhausted && Date.now() < exhaustedUntil) return;
   if (pendingQueue.length === 0) return;
   isExhausted = false;
   LOG.queue(`Queue terbuka — memproses ${pendingQueue.length} request pending`);
@@ -442,7 +446,7 @@ async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
     LOG.think(`[${reqId}] Model=${model} | Round ${round + 1}/${MAX_ROUNDS}`);
     let offset = 0;
     while (offset < total) {
-      const BATCH = Math.min(2, total - offset);
+      const BATCH = 1 // Math.min(2, total - offset);
       const indices = Array.from({ length: BATCH }, (_, i) => (startIndex + offset + i) % total);
       LOG.race(`[${reqId}] Batch: [${indices.map(i => `tok#${i}`).join(' vs ')}]`);
       const attempts = indices.map(idx => callGemini(body, TOKEN_POOL[idx], idx, model, reqId, timeoutMs).then(res => ({ res, idx })));
@@ -462,10 +466,20 @@ async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
   return null;
 }
 
+const THINKING_MODELS = new Set(['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3-flash-preview']);
+
 async function callWithFallback(body, requestedModel, startIndex, reqId, timeoutMs) {
   const resolvedModel = resolveModel(requestedModel);
-  const modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
-  LOG.think(`[${reqId}] Model queue: ${modelQueue.join(' → ')}`);
+  let modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
+
+  if (body._isToolChain) {
+    const before = modelQueue.length;
+    modelQueue = modelQueue.filter(m => !THINKING_MODELS.has(m));
+    LOG.think(`[${reqId}] Tool chain → skip thinking models (${before} → ${modelQueue.length}): ${modelQueue.join(' → ')}`);
+  } else {
+    LOG.think(`[${reqId}] Model queue: ${modelQueue.join(' → ')}`);
+  }
+
   for (let i = 0; i < modelQueue.length; i++) {
     const model = modelQueue[i];
     LOG.fallback(`[${reqId}] Trying model ${i + 1}/${modelQueue.length}: "${model}"`);
@@ -473,6 +487,7 @@ async function callWithFallback(body, requestedModel, startIndex, reqId, timeout
     if (result) return { ...result, model };
     LOG.fallback(`[${reqId}] "${model}" gagal → next`);
   }
+
   LOG.exhaust(`[${reqId}] Semua model & token habis → POOL_EXHAUSTED`);
   throw new Error('POOL_EXHAUSTED');
 }
@@ -516,6 +531,12 @@ function sendError(chunkId, model, message, stream, res, reqId) {
   return res.json({ id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: message }, finish_reason: 'stop' }] });
 }
 
+function hashKey(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(36);
+}
+
 // ============================================================
 // MAIN HANDLER — [FIX-2] expanded hasToolChain detection
 // ============================================================
@@ -533,7 +554,15 @@ async function handleChat(req, res) {
   if (!messages.length) { LOG.warn(`[${reqId}] Request kosong → ping`); return res.json({ choices: [{ message: { role: 'assistant', content: 'Bridge aktif!' } }] }); }
 
   const lastContent = String(messages.at(-1)?.content || '').toLowerCase();
-  if (maxTokens <= 30 || lastContent.includes('title') || lastContent.includes('judul') || lastContent.includes('summarize this session')) {
+  const sysContent = String(messages.find(m => m.role === 'system')?.content || '');
+  const isTitleRequest =
+    maxTokens <= 30 ||
+    lastContent.includes('title') ||
+    lastContent.includes('judul') ||
+    lastContent.includes('summarize this session') ||
+    /generate a short.*title/i.test(sysContent);
+
+  if (isTitleRequest) {
     LOG.think(`[${reqId}] Title/summary bypass → balas cepat`);
     return res.json({ id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: 'Sebastian Session' }, finish_reason: 'stop' }] });
   }
@@ -546,8 +575,11 @@ async function handleChat(req, res) {
   const timeoutMs = hasToolChain ? TIMEOUT_TOOL : TIMEOUT_NORMAL;
   if (hasToolChain) LOG.think(`[${reqId}] Tool chain detected → timeout=${timeoutMs}ms`);
 
-  const sessionKey = String(messages[0]?.content || '').slice(0, 60) || 'default';
-  const isCronjob = messages.length === 1 && messages[0]?.role === 'user';
+  body._isToolChain = hasToolChain;
+
+  const sessionKey = hashKey(sysContent.slice(0, 200));
+  const firstUserMsg = String(messages.find(m => m.role === 'user')?.content || '');
+  const isCronjob = /\[IMPORTANT:.*cron job/i.test(firstUserMsg);
   const ERROR_MSG = 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan';
 
   const memoryData = isCronjob ? null : await loadMemory(sessionKey);

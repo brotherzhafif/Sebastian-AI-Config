@@ -2,18 +2,18 @@ model:
   provider: gemini
   default: gemini-3.5-flash
   base_url: http://localhost:9089/v1
-providers:
-  gemini:
-    api_key: palsu-ga-masalah-karena-diambil-dari-env-jembatan
-fallback_providers:
-- provider: gemini
-  model: gemini-3-flash-preview
-  base_url: http://localhost:9089/v1
-  api_key: palsu-ga-masalah
-- provider: gemini
-  model: gemini-2.5-flash
-  base_url: http://localhost:9089/v1
-  api_key: palsu-ga-masalah
+# providers:
+#   gemini:
+#     api_key: palsu-ga-masalah-karena-diambil-dari-env-jembatan
+# fallback_providers:
+# - provider: gemini
+#   model: gemini-3-flash-preview
+#   base_url: http://localhost:9089/v1
+#   api_key: palsu-ga-masalah
+# - provider: gemini
+#   model: gemini-2.5-flash
+#   base_url: http://localhost:9089/v1
+#   api_key: palsu-ga-masalah
 credential_pool_strategies:
   gemini: round_robin
 toolsets:
