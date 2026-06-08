@@ -184,17 +184,42 @@ async function processQueue() {
 setInterval(() => { if (pendingQueue.length > 0 && Date.now() >= exhaustedUntil) processQueue(); }, 5_000);
 
 async function loadMemory(sessionKey) {
-  const { data, error } = await supabase.from('hermes_memory').select('summary, turns').eq('session_key', sessionKey).maybeSingle();
-  if (error) { LOG.warn(`Gagal load memory: ${error.message}`); return null; }
-  if (!data) return null;
-  LOG.memory(`Memory loaded untuk session "${sessionKey.slice(0, 20)}" — summary=${data.summary?.length || 0} chars, turns=${data.turns?.length || 0}`);
+  const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 menit
+  const RESET_HOUR = 7; // jam 7 pagi
+
+  const { data, error } = await supabase.from('hermes_memory')
+    .select('summary, turns, last_active')
+    .eq('session_key', sessionKey)
+    .maybeSingle();
+  
+  if (error || !data) return null;
+
+  const lastActive = data.last_active ? new Date(data.last_active) : null;
+  const now = new Date();
+
+  // Cek idle timeout
+  if (lastActive && (now - lastActive) > IDLE_TIMEOUT_MS) {
+    LOG.memory(`Session "${sessionKey.slice(0, 20)}" idle >15min → reset`);
+    supabase.from('hermes_memory').delete().eq('session_key', sessionKey).then(() => {});
+    return null;
+  }
+
+  // Cek daily reset jam 7
+  const resetToday = new Date(now);
+  resetToday.setHours(RESET_HOUR, 0, 0, 0);
+  if (lastActive && lastActive < resetToday && now >= resetToday) {
+    LOG.memory(`Session "${sessionKey.slice(0, 20)}" melewati reset jam ${RESET_HOUR} → reset`);
+    supabase.from('hermes_memory').delete().eq('session_key', sessionKey).then(() => {});
+    return null;
+  }
+
   return data;
 }
 
 function saveMemory(sessionKey, turns, summary) {
   const trimmedTurns = turns.slice(-MEMORY_MAX_TURNS);
   supabase.from('hermes_memory')
-    .upsert({ session_key: sessionKey, summary: summary || null, turns: trimmedTurns, updated_at: new Date() }, { onConflict: 'session_key' })
+    .upsert({ session_key: sessionKey, summary: summary || null, turns: trimmedTurns, updated_at: new Date(), last_active: new Date() }, { onConflict: 'session_key' })
     .then(({ error }) => {
       if (error) LOG.err(`Gagal save memory: ${error.message}`);
       else LOG.memory(`Memory saved → session="${sessionKey.slice(0, 20)}" turns=${trimmedTurns.length}`);
@@ -523,6 +548,7 @@ async function handleChat(req, res) {
 
   const sessionKey = String(messages[0]?.content || '').slice(0, 60) || 'default';
   const isCronjob = messages.length === 1 && messages[0]?.role === 'user';
+  const ERROR_MSG = 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan';
 
   const memoryData = isCronjob ? null : await loadMemory(sessionKey);
   const memoryInjection = isCronjob ? '' : buildMemoryInjection(memoryData);
@@ -542,7 +568,7 @@ async function handleChat(req, res) {
       setSessionIndexRemote(sessionKey, result.idx);
       globalIndex = (result.idx + 1) % TOKEN_POOL.length;
       return buildOpenAIResponse(result.res, chunkId, result.model, stream, res, reqId);
-    } catch (err) { return sendError(chunkId, model, 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan', stream, res, reqId); }
+    } catch (err) { return sendError(chunkId, model, ERROR_MSG, stream, res, reqId); }
   }
 
   try {
@@ -550,9 +576,25 @@ async function handleChat(req, res) {
     setSessionIndexRemote(sessionKey, winnerIdx);
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
 
+    const HERMES_META_PATTERN = /<userRequest>|<environment_info>|<workspace_info>|<editorContext>|<attachments>|<context>|<reminderInstructions>/i;
+
     if (!isCronjob) {
-      const newTurns = messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.content)).map(m => ({ role: m.role, content: String(m.content || '').slice(0, 200) }));
-      const allTurns = [...(memoryData?.turns || []), ...newTurns];
+      const newTurns = messages
+        .filter(m => 
+          (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
+          m.content !== ERROR_MSG &&
+          !HERMES_META_PATTERN.test(m.content || '')
+        )
+        .map(m => ({ role: m.role, content: String(m.content || '').slice(0, 200) }));
+      
+      const existingTurns = memoryData?.turns || [];
+      const lastTurn = existingTurns.at(-1);
+      const dedupedNew = newTurns.filter((t, i) => {
+        if (i === 0 && lastTurn?.content === t.content && lastTurn?.role === t.role) return false;
+        return true;
+      });
+
+      const allTurns = [...existingTurns, ...dedupedNew];
       const summary = await summarizeIfNeeded(sessionKey, allTurns, usedModel);
       saveMemory(sessionKey, summary ? [] : allTurns, summary || memoryData?.summary);
     }
@@ -567,7 +609,7 @@ async function handleChat(req, res) {
     LOG.queue(`Pool exhausted → queue buka dalam ${QUEUE_RETRY_DELAY / 1000}s`);
     setSessionIndexRemote(sessionKey, (startIndex + 1) % TOKEN_POOL.length);
     recordRequestRemote({ model, inputTokens: 0, outputTokens: 0, tokenIdx: -1, success: false, ms: 0 });
-    return sendError(chunkId, model, 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan', stream, res, reqId);
+    return sendError(chunkId, model, ERROR_MSG, stream, res, reqId);
   }
 }
 
