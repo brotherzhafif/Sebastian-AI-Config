@@ -489,14 +489,14 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
       }
-      res.write(`data: ${JSON.stringify({ ...payload, object: 'chat.completion.chunk', choices: [{ index: 0, delta: payload.choices[0].message, finish_reason: 'tool_calls' }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ ...payload, object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: toolCalls }, finish_reason: 'tool_calls' }] })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     }
     return res.json(payload);
   }
 
-  const text = parts.map(p => p.text || '').join('');
+  const text = parts.map(p => p.text || '').join('').trimStart();
   LOG.out(`[${reqId}] → TEXT: ${text.length} chars | "${text.slice(0, 100).replace(/\n/g, ' ')}"`);
 
   if (stream) {
@@ -553,11 +553,12 @@ async function handleChat(req, res) {
   const lastContent = String(messages.at(-1)?.content || '').toLowerCase();
   const sysContent = String(messages.find(m => m.role === 'system')?.content || '');
   const isTitleRequest =
-    maxTokens <= 30 ||
+    !hasToolChain &&  // ← tambah ini
+    (maxTokens <= 30 ||
     lastContent.includes('title') ||
     lastContent.includes('judul') ||
     lastContent.includes('summarize this session') ||
-    /generate a short.*title/i.test(sysContent);
+    /generate a short.*title/i.test(sysContent));
 
   if (isTitleRequest) {
     LOG.think(`[${reqId}] Title/summary bypass → balas cepat`);
