@@ -61,15 +61,37 @@ const MODEL_ALIASES = {
   'gemini-flash':         'gemini-flash-latest',
 };
 
-const MEMORY_CONFIG = {
-  expiry_enabled: false,
-  idle_timeout_minutes: 240,
-  daily_reset_hour: 7,
-  max_turns: 6,        
-  trim_chars: 120,     
-  summary_threshold: 15,
-  injection_turns: 4,  
+const SOURCE_CONFIG = {
+  whatsapp: { max_turns: 10, trim_chars: 120, injection_turns: 5, summary_threshold: 20 },
+  copilot:  { max_turns: 6,  trim_chars: 200, injection_turns: 3, summary_threshold: 15 },
+  web:      { max_turns: 6,  trim_chars: 150, injection_turns: 4, summary_threshold: 15 },
+  cron:     { max_turns: 6,  trim_chars: 150, injection_turns: 4, summary_threshold: 15 },
+ 
+  default:  { max_turns: 6,  trim_chars: 120, injection_turns: 4, summary_threshold: 15 },
 };
+
+function getSourceConfig(source) {
+  return SOURCE_CONFIG[source] ?? SOURCE_CONFIG.default;
+}
+
+function detectSource(req) {
+  // Priority 1: header X-Source — terima apa adanya
+  const headerSource = req.headers['x-source']?.toLowerCase().trim();
+  if (headerSource) {
+    LOG.session(`Source via header: "${headerSource}"`);
+    return headerSource;
+  }
+
+  // Priority 2: cari tag [source:xxx] di system prompt
+  const sysContent = String(req.body?.messages?.find(m => m.role === 'system')?.content || '');
+  const tagMatch = sysContent.match(/\[source:(\w+)\]/i);
+  if (tagMatch) {
+    LOG.session(`Source via tag: "${tagMatch[1]}"`);
+    return tagMatch[1].toLowerCase();
+  }
+
+  return 'default';
+}
 
 function resolveModel(requested) {
   if (!requested) return DEFAULT_MODEL;
@@ -160,80 +182,148 @@ LOG.token(`${TOKEN_POOL.length} token terdeteksi: [${TOKEN_POOL.map((_, i) => `t
 
 let globalIndex = 0;
 
-async function loadMemory(sessionKey) {
-  const { data, error } = await supabase.from('hermes_memory')
+// ============================================================
+// MULTI-SOURCE MEMORY
+// ============================================================
+async function loadLocalMemory(source, sessionKey) {
+  const { data, error } = await supabase
+    .from('hermes_memory')
     .select('summary, turns, last_active')
+    .eq('source', source)
     .eq('session_key', sessionKey)
     .maybeSingle();
 
   if (error || !data) return null;
-
-  if (MEMORY_CONFIG.expiry_enabled) {
-    const lastActive = data.last_active ? new Date(data.last_active) : null;
-    const now = new Date();
-
-    if (lastActive && (now - lastActive) > MEMORY_CONFIG.idle_timeout_minutes * 60 * 1000) {
-      LOG.memory(`Session "${sessionKey.slice(0, 20)}" idle >${MEMORY_CONFIG.idle_timeout_minutes}min → reset`);
-      supabase.from('hermes_memory').delete().eq('session_key', sessionKey).then(() => {});
-      return null;
-    }
-
-    const resetToday = new Date(now);
-    resetToday.setHours(MEMORY_CONFIG.daily_reset_hour, 0, 0, 0);
-    if (lastActive && lastActive < resetToday && now >= resetToday) {
-      LOG.memory(`Session "${sessionKey.slice(0, 20)}" melewati reset jam ${MEMORY_CONFIG.daily_reset_hour} → reset`);
-      supabase.from('hermes_memory').delete().eq('session_key', sessionKey).then(() => {});
-      return null;
-    }
-  }
-
   return data;
 }
 
-function saveMemory(sessionKey, turns, summary) {
-  const trimmedTurns = turns.slice(-MEMORY_CONFIG.max_turns);
+async function loadCrossMemory() {
+  const { data, error } = await supabase
+    .from('hermes_cross_memory')
+    .select('cross_summary')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data.cross_summary;
+}
+
+function saveLocalMemory(source, sessionKey, turns, summary) {
+  const cfg = getSourceConfig(source);
+  const trimmedTurns = turns.slice(-cfg.max_turns);
+
   supabase.from('hermes_memory')
-    .upsert({ session_key: sessionKey, summary: summary || null, turns: trimmedTurns, updated_at: new Date(), last_active: new Date() }, { onConflict: 'session_key' })
+    .upsert(
+      { source, session_key: sessionKey, summary: summary || null, turns: trimmedTurns, updated_at: new Date(), last_active: new Date() },
+      { onConflict: 'source,session_key' }
+    )
     .then(({ error }) => {
-      if (error) LOG.err(`Gagal save memory: ${error.message}`);
-      else LOG.memory(`Memory saved → session="${sessionKey.slice(0, 20)}" turns=${trimmedTurns.length}`);
+      if (error) LOG.err(`Gagal save memory [${source}]: ${error.message}`);
+      else LOG.memory(`Memory saved → source=${source} session="${sessionKey.slice(0, 20)}" turns=${trimmedTurns.length}`);
     });
 }
 
-function buildMemoryInjection(memoryData) {
-  if (!memoryData) return '';
-  const parts = [];
-  if (memoryData.summary) parts.push(`Ringkasan: ${memoryData.summary}`);
-  if (memoryData.turns?.length) {
-    const optimizedTurns = memoryData.turns.slice(-MEMORY_CONFIG.injection_turns);
-    parts.push(`Turns terakhir:\n${optimizedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
-  }
-  return parts.length
-    ? `\n\n---\n[MEMORY CONTEXT - referensi internal saja. JANGAN disampaikan, dirangkum, atau disinggung ke user. Langsung lanjut ke respons baru.]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
-    : '';
-}
+async function updateCrossMemory(triggeredSource, localSummary) {
+  // Ambil semua summary dari source lain
+  const { data, error } = await supabase
+    .from('hermes_memory')
+    .select('source, summary')
+    .not('summary', 'is', null);
 
-async function summarizeIfNeeded(sessionKey, turns, model) {
-  if (turns.length < MEMORY_CONFIG.summary_threshold) return null;
-  LOG.memory(`History panjang (${turns.length} turns) → summarize ke Gemini`);
-  const summaryPrompt = `Rangkum percakapan berikut secara singkat dalam 3-5 kalimat, fokus pada hal-hal penting yang perlu diingat:\n\n${turns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
+  if (error || !data?.length) return;
+
+  const parts = data.map(r => `[${r.source}]: ${r.summary}`).join('\n\n');
+  const prompt = `Rangkum poin-poin penting dari berbagai konteks percakapan berikut menjadi 5-7 kalimat. Fokus pada fakta, preferensi, dan hal yang perlu diingat lintas konteks:\n\n${parts}`;
+
   try {
-    const payload = JSON.stringify({ contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }] });
     const apiKey = TOKEN_POOL[globalIndex % TOKEN_POOL.length];
-    const summary = await new Promise((resolve, reject) => {
-      const options = { hostname: 'generativelanguage.googleapis.com', path: `/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } };
+    const payload = JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }] });
+    const crossSummary = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'generativelanguage.googleapis.com',
+        path: `/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      };
       const req = https.request(options, (res) => {
         let raw = '';
-        res.on('data', c => { raw += c; });
-        res.on('end', () => { try { const json = JSON.parse(raw); resolve(json.candidates?.[0]?.content?.parts?.[0]?.text || ''); } catch { reject(new Error('Parse error')); } });
+        res.on('data', c => raw += c);
+        res.on('end', () => {
+          try { resolve(JSON.parse(raw).candidates?.[0]?.content?.parts?.[0]?.text || ''); }
+          catch { reject(new Error('Parse error')); }
+        });
       });
       req.setTimeout(15_000, () => { req.destroy(); reject(new Error('Timeout')); });
       req.on('error', reject);
       req.write(payload); req.end();
     });
-    LOG.memory(`Summary generated: "${summary.slice(0, 80)}..."`);
+
+    await supabase.from('hermes_cross_memory')
+      .upsert({ id: 1, cross_summary: crossSummary, updated_at: new Date() }, { onConflict: 'id' });
+
+    LOG.memory(`Cross-memory updated (triggered by ${triggeredSource}): "${crossSummary.slice(0, 80)}..."`);
+  } catch (e) {
+    LOG.warn(`updateCrossMemory gagal: ${e.message}`);
+  }
+}
+
+async function summarizeIfNeeded(source, sessionKey, turns, model) {
+  const cfg = getSourceConfig(source);
+  if (turns.length < cfg.summary_threshold) return null;
+
+  LOG.memory(`[${source}] History panjang (${turns.length} turns) → summarize`);
+  const summaryPrompt = `Rangkum percakapan berikut secara singkat dalam 3-5 kalimat, fokus pada hal-hal penting yang perlu diingat:\n\n${turns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
+
+  try {
+    const apiKey = TOKEN_POOL[globalIndex % TOKEN_POOL.length];
+    const payload = JSON.stringify({ contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }] });
+    const summary = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'generativelanguage.googleapis.com',
+        path: `/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      };
+      const req = https.request(options, (res) => {
+        let raw = '';
+        res.on('data', c => raw += c);
+        res.on('end', () => {
+          try { resolve(JSON.parse(raw).candidates?.[0]?.content?.parts?.[0]?.text || ''); }
+          catch { reject(new Error('Parse error')); }
+        });
+      });
+      req.setTimeout(15_000, () => { req.destroy(); reject(new Error('Timeout')); });
+      req.on('error', reject);
+      req.write(payload); req.end();
+    });
+    LOG.memory(`Summary [${source}]: "${summary.slice(0, 80)}..."`);
     return summary;
-  } catch (e) { LOG.warn(`Summarize gagal: ${e.message}`); return null; }
+  } catch (e) {
+    LOG.warn(`Summarize gagal [${source}]: ${e.message}`);
+    return null;
+  }
+}
+
+function buildMemoryInjection(source, localData, crossSummary) {
+  const cfg = getSourceConfig(source);
+  const parts = [];
+
+  // Local: summary + recent turns
+  if (localData?.summary) parts.push(`Ringkasan [${source}]: ${localData.summary}`);
+  if (localData?.turns?.length) {
+    const recent = localData.turns.slice(-cfg.injection_turns);
+    parts.push(`History terakhir [${source}]:\n${recent.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+  }
+
+  // Cross-platform: summary dari source lain
+  if (crossSummary) {
+    parts.push(`Konteks lintas platform (referensi):\n${crossSummary}`);
+  }
+
+  return parts.length
+    ? `\n\n---\n[MEMORY CONTEXT - jangan disampaikan/disinggung ke user. Gunakan sebagai konteks internal.]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
+    : '';
 }
 
 async function getSessionIndexRemote(key) {
@@ -552,7 +642,10 @@ async function handleChat(req, res) {
 
   LOG.req(`[${reqId}] POST /chat | model=${model} msgs=${messages.length} stream=${stream} maxTok=${maxTokens}`);
 
-  if (!messages.length) { LOG.warn(`[${reqId}] Request kosong → ping`); return res.json({ choices: [{ message: { role: 'assistant', content: 'Bridge aktif!' } }] }); }
+  if (!messages.length) {
+    LOG.warn(`[${reqId}] Request kosong → ping`);
+    return res.json({ choices: [{ message: { role: 'assistant', content: 'Bridge aktif!' } }] });
+  }
 
   const lastContent = String(messages.at(-1)?.content || '').toLowerCase();
   const sysContent = String(messages.find(m => m.role === 'system')?.content || '');
@@ -561,14 +654,15 @@ async function handleChat(req, res) {
     m.role === 'function' ||
     (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
   );
+
   const isTitleRequest =
-    !hasToolChain && 
+    !hasToolChain &&
     !body.tools?.length &&
     (maxTokens <= 30 ||
-    lastContent.includes('title') ||
-    lastContent.includes('judul') ||
-    lastContent.includes('summarize this session') ||
-    /generate a short.*title/i.test(sysContent));
+      lastContent.includes('title') ||
+      lastContent.includes('judul') ||
+      lastContent.includes('summarize this session') ||
+      /generate a short.*title/i.test(sysContent));
 
   if (isTitleRequest) {
     LOG.think(`[${reqId}] Title/summary bypass → balas cepat`);
@@ -581,15 +675,22 @@ async function handleChat(req, res) {
   const firstUserMsg = String(messages.find(m => m.role === 'user')?.content || '');
   const isCronjob = /\[IMPORTANT:.*cron job/i.test(firstUserMsg);
   const sessionKey = isCronjob
-  ? `cron_${hashKey(firstUserMsg.slice(0, 100))}`
-  : hashKey(sysContent.slice(0, 200));
+    ? `cron_${hashKey(firstUserMsg.slice(0, 100))}`
+    : hashKey(sysContent.slice(0, 200));
   const ERROR_MSG = 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan';
 
-  const memoryData = isCronjob ? null : await loadMemory(sessionKey);
-  const memoryInjection = isCronjob ? '' : buildMemoryInjection(memoryData);
-  if (memoryInjection) LOG.memory(`[${reqId}] Memory injected (${memoryInjection.length} chars)`);
-  else if (isCronjob) LOG.memory(`[${reqId}] Cronjob detected → skip memory injection`);
+  // ── MEMORY ──────────────────────────────────────────────
+  const source = isCronjob ? 'cronjob' : detectSource(req);
+  const localMemory = isCronjob ? null : await loadLocalMemory(source, sessionKey);
+  const crossSummary = isCronjob ? null : await loadCrossMemory();
+  const memoryInjection = isCronjob ? '' : buildMemoryInjection(source, localMemory, crossSummary);
+
+  if (memoryInjection) LOG.memory(`[${reqId}] Memory injected source=${source} (${memoryInjection.length} chars)`);
+  else if (isCronjob) LOG.memory(`[${reqId}] Cronjob → skip memory`);
+
   body._memoryInjection = memoryInjection;
+  body._source = source;
+  // ────────────────────────────────────────────────────────
 
   const cachedIndex = await getSessionIndexRemote(sessionKey);
   const startIndex = cachedIndex ?? globalIndex;
@@ -611,28 +712,29 @@ async function handleChat(req, res) {
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
 
     const HERMES_META_PATTERN = /<userRequest>|<environment_info>|<workspace_info>|<editorContext>|<attachments>|<context>|<reminderInstructions>/i;
-    
+    const cfg = getSourceConfig(source);
+
     if (!isCronjob) {
       const newTurns = messages
-        .filter(m => 
+        .filter(m =>
           (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
           m.content !== ERROR_MSG &&
           !HERMES_META_PATTERN.test(m.content || '')
         )
-        .map(m => ({ 
-          role: m.role, 
-          // Wajib di-slice di sini sebelum masuk ke Set pembanding!
-          content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars) 
+        .map(m => ({
+          role: m.role,
+          content: String(m.content || '').slice(0, cfg.trim_chars)  // ✅ per-source trim
         }));
 
-      const existingTurns = memoryData?.turns || [];
-      // Sekarang pembandingnya presisi karena text dari DB dan text baru sama-sama maksimal sepanjang trim_chars
+      const existingTurns = localMemory?.turns || [];  // ✅ pakai localMemory bukan memoryData
       const existingContents = new Set(existingTurns.map(t => t.role + ':' + t.content));
       const dedupedNew = newTurns.filter(t => !existingContents.has(t.role + ':' + t.content));
 
-      const allTurns = [...existingTurns, ...dedupedNew].slice(-MEMORY_CONFIG.max_turns);
-      const summary = await summarizeIfNeeded(sessionKey, allTurns, usedModel);
-      saveMemory(sessionKey, summary ? [] : allTurns, summary || memoryData?.summary);
+      const allTurns = [...existingTurns, ...dedupedNew].slice(-cfg.max_turns);  // ✅ per-source max_turns
+      const summary = await summarizeIfNeeded(source, sessionKey, allTurns, usedModel);  // ✅ signature baru
+      saveLocalMemory(source, sessionKey, summary ? [] : allTurns, summary || localMemory?.summary);
+
+      if (summary) updateCrossMemory(source, summary).catch(() => {});
     }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
@@ -640,7 +742,7 @@ async function handleChat(req, res) {
 
   } catch (err) {
     if (heartbeat) clearInterval(heartbeat);
-    
+
     if (err?.code === 'ERR_HTTP_HEADERS_SENT' || res.headersSent) {
       LOG.warn(`[${reqId}] Double-response (headers sent), ignoring`);
       return;
