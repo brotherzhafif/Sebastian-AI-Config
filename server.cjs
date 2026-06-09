@@ -204,7 +204,7 @@ function buildMemoryInjection(memoryData) {
   // OPTIMASI: Ambil hanya 3 baris turn terakhir untuk menghemat token input hingga 70%
   if (memoryData.turns?.length) {
     const optimizedTurns = memoryData.turns.slice(-3);
-    parts.push(`## Konteks Turn Terakhir\n${optimizedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+    parts.push(`## Konteks Historis (HANYA referensi, JANGAN dilanjutkan otomatis)\n${optimizedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
   }
   return parts.length ? `\n\n---\n\n${parts.join('\n\n')}` : '';
 }
