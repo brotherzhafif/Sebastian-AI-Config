@@ -220,6 +220,16 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         </div>
     </div>
 
+    <div style="padding:0 24px 24px">
+      <div class="section">
+        <div class="section-header" style="display:flex;justify-content:space-between;align-items:center">
+          <div class="section-title">🧠 Hermes Memory — Active Sessions</div>
+          <button onclick="fetchMemory()" style="font-size:12px">↻ Refresh</button>
+        </div>
+        <div id="memory-table"></div>
+      </div>
+    </div>
+
     <script>
         const sbUrl = "${supabaseUrl}";
         const sbKey = "${supabaseKey}";
@@ -266,6 +276,46 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
             } catch(e) {
                 console.error('API Error:', e);
             }
+        }
+
+        function toggleTurns(i) {
+          const el = document.getElementById('turns-' + i);
+          el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+        }
+
+        async function fetchMemory() {
+          const res = await fetch('/dashboard/api/memory');
+          const { data } = await res.json();
+          if (!data?.length) {
+            document.getElementById('memory-table').innerHTML = '<div style="color:var(--muted);padding:16px;font-size:13px">Tidak ada sesi aktif</div>';
+            return;
+          }
+          let rows = '';
+          data.forEach((m, i) => {
+            const turnsHtml = (m.turns || []).map(t =>
+              '<div style="padding:4px 8px;border-left:2px solid var(--border);margin:4px 0">'
+              + '<span style="color:' + (t.role === 'user' ? 'var(--blue)' : 'var(--green)') + ';font-size:10px;text-transform:uppercase">' + t.role + '</span>'
+              + '<span style="color:var(--text);font-size:12px;margin-left:8px">' + t.content + '</span>'
+              + '</div>'
+            ).join('');
+
+            rows += '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleTurns(' + i + ')">'
+              + '<td style="padding:8px;font-family:monospace;color:var(--accent)">' + m.session_key + '</td>'
+              + '<td style="padding:8px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (m.summary || '<em>—</em>') + '</td>'
+              + '<td style="padding:8px;text-align:center">' + (m.turns?.length || 0) + '</td>'
+              + '<td style="padding:8px;color:var(--muted)">' + new Date(m.last_active).toLocaleString('id-ID', {timeZone:'Asia/Jakarta'}) + '</td>'
+              + '</tr>'
+              + '<tr id="turns-' + i + '" style="display:none">'
+              + '<td colspan="4" style="padding:8px 16px;background:var(--surface2)">' + turnsHtml + '</td>'
+              + '</tr>';
+          });
+          document.getElementById('memory-table').innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+            + '<thead><tr style="color:var(--muted);border-bottom:1px solid var(--border)">'
+            + '<th style="padding:8px;text-align:left">Session</th>'
+            + '<th style="padding:8px;text-align:left">Summary</th>'
+            + '<th style="padding:8px;text-align:left">Turns</th>'
+            + '<th style="padding:8px;text-align:left">Last Active</th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table>';
         }
 
         function renderDashboard(d) {
@@ -423,6 +473,7 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         document.getElementById('end-date').value = todayStr;
 
         fetchAnalytics();
+        fetchMemory();
     </script>
 </body>
 </html>`;
@@ -433,6 +484,17 @@ function initDashboardRouter(supabase) {
   router.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     return res.send(getDashboardHTML(supabase.supabaseUrl, supabase.supabaseKey));
+  });
+
+  router.get('/api/memory', async (req, res) => {
+    const { data, error } = await supabase
+      .from('hermes_memory')
+      .select('session_key, summary, turns, last_active, updated_at')
+      .order('last_active', { ascending: false })
+      .limit(50);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ data });
   });
 
   router.get('/api/data', async (req, res) => {
