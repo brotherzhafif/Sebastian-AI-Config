@@ -31,8 +31,8 @@ const LOG = {
 
 const PORT = process.env.PORT || 9089;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const TIMEOUT_NORMAL = 6_000;
-const TIMEOUT_TOOL   = 30_000;
+const TIMEOUT_NORMAL = 30_000;
+const TIMEOUT_TOOL   = 60_000;
 const MEMORY_MAX_TURNS = 4;
 const MEMORY_TRIM = 60;
 const MEMORY_SUMMARY_THRESHOLD = 20;
