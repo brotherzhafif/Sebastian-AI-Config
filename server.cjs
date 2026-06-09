@@ -33,9 +33,6 @@ const PORT = process.env.PORT || 9089;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const TIMEOUT_NORMAL = 30_000;
 const TIMEOUT_TOOL   = 60_000;
-const MEMORY_MAX_TURNS = 4;
-const MEMORY_TRIM = 60;
-const MEMORY_SUMMARY_THRESHOLD = 20;
 
 const LOG_SUPPRESS = new Set(['GET:/v1/models', 'GET:/v1/models/']);
 
@@ -62,6 +59,16 @@ const MODEL_ALIASES = {
   'gemini-3.5-pro':       'gemini-2.5-flash',
   'gemini-2.5-pro':       'gemini-2.5-flash',
   'gemini-flash':         'gemini-flash-latest',
+};
+
+const MEMORY_CONFIG = {
+  expiry_enabled: false,
+  idle_timeout_minutes: 15,
+  daily_reset_hour: 7,
+  max_turns: 10,
+  trim_chars: 150,
+  summary_threshold: 40,
+  injection_turns: 8,
 };
 
 function resolveModel(requested) {
@@ -154,40 +161,37 @@ LOG.token(`${TOKEN_POOL.length} token terdeteksi: [${TOKEN_POOL.map((_, i) => `t
 let globalIndex = 0;
 
 async function loadMemory(sessionKey) {
-  const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 menit
-  const RESET_HOUR = 7; // jam 7 pagi
-
   const { data, error } = await supabase.from('hermes_memory')
     .select('summary, turns, last_active')
     .eq('session_key', sessionKey)
     .maybeSingle();
-  
+
   if (error || !data) return null;
 
-  const lastActive = data.last_active ? new Date(data.last_active) : null;
-  const now = new Date();
+  if (MEMORY_CONFIG.expiry_enabled) {
+    const lastActive = data.last_active ? new Date(data.last_active) : null;
+    const now = new Date();
 
-  // Cek idle timeout
-  if (lastActive && (now - lastActive) > IDLE_TIMEOUT_MS) {
-    LOG.memory(`Session "${sessionKey.slice(0, 20)}" idle >15min → reset`);
-    supabase.from('hermes_memory').delete().eq('session_key', sessionKey).then(() => {});
-    return null;
-  }
+    if (lastActive && (now - lastActive) > MEMORY_CONFIG.idle_timeout_minutes * 60 * 1000) {
+      LOG.memory(`Session "${sessionKey.slice(0, 20)}" idle >${MEMORY_CONFIG.idle_timeout_minutes}min → reset`);
+      supabase.from('hermes_memory').delete().eq('session_key', sessionKey).then(() => {});
+      return null;
+    }
 
-  // Cek daily reset jam 7
-  const resetToday = new Date(now);
-  resetToday.setHours(RESET_HOUR, 0, 0, 0);
-  if (lastActive && lastActive < resetToday && now >= resetToday) {
-    LOG.memory(`Session "${sessionKey.slice(0, 20)}" melewati reset jam ${RESET_HOUR} → reset`);
-    supabase.from('hermes_memory').delete().eq('session_key', sessionKey).then(() => {});
-    return null;
+    const resetToday = new Date(now);
+    resetToday.setHours(MEMORY_CONFIG.daily_reset_hour, 0, 0, 0);
+    if (lastActive && lastActive < resetToday && now >= resetToday) {
+      LOG.memory(`Session "${sessionKey.slice(0, 20)}" melewati reset jam ${MEMORY_CONFIG.daily_reset_hour} → reset`);
+      supabase.from('hermes_memory').delete().eq('session_key', sessionKey).then(() => {});
+      return null;
+    }
   }
 
   return data;
 }
 
 function saveMemory(sessionKey, turns, summary) {
-  const trimmedTurns = turns.slice(-MEMORY_MAX_TURNS);
+  const trimmedTurns = turns.slice(-MEMORY_CONFIG.max_turns);
   supabase.from('hermes_memory')
     .upsert({ session_key: sessionKey, summary: summary || null, turns: trimmedTurns, updated_at: new Date(), last_active: new Date() }, { onConflict: 'session_key' })
     .then(({ error }) => {
@@ -201,16 +205,16 @@ function buildMemoryInjection(memoryData) {
   const parts = [];
   if (memoryData.summary) parts.push(`Ringkasan: ${memoryData.summary}`);
   if (memoryData.turns?.length) {
-    const optimizedTurns = memoryData.turns.slice(-3);
+    const optimizedTurns = memoryData.turns.slice(-MEMORY_CONFIG.injection_turns);
     parts.push(`Turns terakhir:\n${optimizedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
   }
-  return parts.length 
-    ? `\n\n---\n[MEMORY CONTEXT - ini hanya referensi historis, JANGAN dilanjutkan atau dieksekusi ulang]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
+  return parts.length
+    ? `\n\n---\n[MEMORY CONTEXT - referensi internal saja. JANGAN disampaikan, dirangkum, atau disinggung ke user. Langsung lanjut ke respons baru.]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
     : '';
 }
 
 async function summarizeIfNeeded(sessionKey, turns, model) {
-  if (turns.length < MEMORY_SUMMARY_THRESHOLD) return null;
+  if (turns.length < MEMORY_CONFIG.summary_threshold) return null;
   LOG.memory(`History panjang (${turns.length} turns) → summarize ke Gemini`);
   const summaryPrompt = `Rangkum percakapan berikut secara singkat dalam 3-5 kalimat, fokus pada hal-hal penting yang perlu diingat:\n\n${turns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
   try {
@@ -614,13 +618,13 @@ async function handleChat(req, res) {
           m.content !== ERROR_MSG &&
           !HERMES_META_PATTERN.test(m.content || '')
         )
-        .map(m => ({ role: m.role, content: String(m.content || '').slice(0, MEMORY_TRIM) }));
+        .map(m => ({ role: m.role, content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars) }));
       
       const existingTurns = memoryData?.turns || [];
       const existingContents = new Set(existingTurns.map(t => t.role + ':' + t.content));
       const dedupedNew = newTurns.filter(t => !existingContents.has(t.role + ':' + t.content));
 
-      const allTurns = [...existingTurns, ...dedupedNew].slice(-MEMORY_MAX_TURNS);
+      const allTurns = [...existingTurns, ...dedupedNew].slice(-MEMORY_CONFIG.max_turns);
       const summary = await summarizeIfNeeded(sessionKey, allTurns, usedModel);
       saveMemory(sessionKey, summary ? [] : allTurns, summary || memoryData?.summary);
     }
