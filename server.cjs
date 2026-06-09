@@ -31,7 +31,7 @@ const LOG = {
 
 const PORT = process.env.PORT || 9089;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const TIMEOUT_NORMAL = 20_000;
+const TIMEOUT_NORMAL = 6_000;
 const TIMEOUT_TOOL   = 30_000;
 const MEMORY_MAX_TURNS = 4;
 const MEMORY_TRIM = 60;
@@ -335,7 +335,7 @@ function toGeminiPayload(body, reqId, memoryInjection) {
 function callGemini(body, apiKey, tokenIndex, model, reqId, timeoutMs) {
   return new Promise((resolve, reject) => {
     const t0 = Date.now();
-    const payload = toGeminiPayload(body, reqId, body._memoryInjection);
+    const payload = body._cachedPayload;
     let done = false;
 
     LOG.race(`[${reqId}] Firing tok#${tokenIndex} → ${model} (timeout=${timeoutMs}ms)`);
@@ -403,32 +403,49 @@ function callGemini(body, apiKey, tokenIndex, model, reqId, timeoutMs) {
   });
 }
 
-// ✅ [FIX-3] thought_signature skip dihapus dari sini
 async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
+  body._cachedPayload = toGeminiPayload(body, reqId, body._memoryInjection);
+  
   const total = TOKEN_POOL.length;
-  const MAX_ROUNDS = 2;
+  const MAX_ROUNDS = 1;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     LOG.think(`[${reqId}] Model=${model} | Round ${round + 1}/${MAX_ROUNDS}`);
-    let offset = 0;
-    while (offset < total) {
-      const BATCH = 1 // Math.min(2, total - offset);
-      const indices = Array.from({ length: BATCH }, (_, i) => (startIndex + offset + i) % total);
-      LOG.race(`[${reqId}] Batch: [${indices.map(i => `tok#${i}`).join(' vs ')}]`);
-      const attempts = indices.map(idx => callGemini(body, TOKEN_POOL[idx], idx, model, reqId, timeoutMs).then(res => ({ res, idx })));
+    
+    for (let offset = 0; offset < total; offset++) {
+      const idx = (startIndex + offset) % total;
+      LOG.race(`[${reqId}] Trying tok#${idx}`);
+      
       try {
-        return await Promise.any(attempts);
-      } catch (aggErr) {
-        const errors = aggErr.errors || [];
-        LOG.warn(`[${reqId}] Batch gagal: [${errors.map(e => `tok#${e?.index}:${e?.type}`).join(', ')}]`);
-        const isModelError = errors.some(e => e?.type === 'API_ERROR' && /not found|invalid|does not exist|unsupported/i.test(e?.message || ''));
-        if (isModelError) { LOG.fallback(`[${reqId}] Model "${model}" tidak valid → skip`); return null; }
-        offset += BATCH;
+        const result = await callGemini(body, TOKEN_POOL[idx], idx, model, reqId, timeoutMs);
+        return { res: result, idx };
+      } catch (err) {
+        LOG.warn(`[${reqId}] tok#${idx} failed: ${err?.type} → next`);
+        
+        // thought_signature = model incompatible, skip langsung ke model lain
+        if (/thought_signature/i.test(err?.message || '')) {
+          LOG.fallback(`[${reqId}] thought_signature → skip model "${model}"`);
+          return null;
+        }
+        
+        // model invalid = skip langsung
+        if (err?.type === 'API_ERROR' && /not found|invalid|does not exist|unsupported/i.test(err?.message || '')) {
+          LOG.fallback(`[${reqId}] Model "${model}" tidak valid → skip`);
+          return null;
+        }
+        
+        // quota/rate limit = coba token berikutnya
+        // timeout/network = coba token berikutnya
+        continue;
       }
     }
-    if (round < MAX_ROUNDS - 1) { LOG.fallback(`[${reqId}] Round ${round + 1} habis → retry setelah 500ms`); await new Promise(r => setTimeout(r, 500)); }
+    
+    if (round < MAX_ROUNDS - 1) {
+      LOG.fallback(`[${reqId}] Round ${round + 1} habis → retry 500ms`);
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
-  LOG.fallback(`[${reqId}] Model="${model}" exhausted (${MAX_ROUNDS} rounds × ${total} tokens)`);
+  
   return null;
 }
 
@@ -456,13 +473,25 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
   const firstPart = parts[0];
 
   if (firstPart?.functionCall) {
-    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({ id: `call_${chunkId}_${i}`, type: 'function', function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) } }));
+    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({
+      id: `call_${chunkId}_${i}`, type: 'function',
+      function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) }
+    }));
     LOG.out(`[${reqId}] → TOOL_CALLS: [${toolCalls.map(t => t.function.name).join(', ')}]`);
-    const payload = { id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: null, tool_calls: toolCalls }, finish_reason: 'tool_calls' }] };
+    const payload = {
+      id: chunkId, object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000), model,
+      choices: [{ index: 0, message: { role: 'assistant', content: null, tool_calls: toolCalls }, finish_reason: 'tool_calls' }]
+    };
     if (stream) {
-      res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache');
+      // ✅ JANGAN set headers lagi, sudah di-set di handleChat
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+      }
       res.write(`data: ${JSON.stringify({ ...payload, object: 'chat.completion.chunk', choices: [{ index: 0, delta: payload.choices[0].message, finish_reason: 'tool_calls' }] })}\n\n`);
-      res.write('data: [DONE]\n\n'); return res.end();
+      res.write('data: [DONE]\n\n');
+      return res.end();
     }
     return res.json(payload);
   }
@@ -471,9 +500,14 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
   LOG.out(`[${reqId}] → TEXT: ${text.length} chars | "${text.slice(0, 100).replace(/\n/g, ' ')}"`);
 
   if (stream) {
-    res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Connection', 'keep-alive');
+    if (!res.headersSent) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+    }
     res.write(`data: ${JSON.stringify({ id: chunkId, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: 'stop' }] })}\n\n`);
-    res.write('data: [DONE]\n\n'); return res.end();
+    res.write('data: [DONE]\n\n');
+    return res.end();
   }
 
   return res.json({ id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
@@ -593,6 +627,12 @@ async function handleChat(req, res) {
 
   } catch (err) {
     if (heartbeat) clearInterval(heartbeat);
+    
+    if (err?.code === 'ERR_HTTP_HEADERS_SENT' || res.headersSent) {
+      LOG.warn(`[${reqId}] Double-response (headers sent), ignoring`);
+      return;
+    }
+
     LOG.exhaust(`[${reqId}] ❌ POOL_EXHAUSTED: ${err.message}`);
     setSessionIndexRemote(sessionKey, (startIndex + 1) % TOKEN_POOL.length);
     recordRequestRemote({ model, inputTokens: 0, outputTokens: 0, tokenIdx: -1, success: false, ms: 0 });

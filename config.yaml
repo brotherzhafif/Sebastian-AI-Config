@@ -2,18 +2,8 @@ model:
   provider: gemini
   default: gemini-3.5-flash
   base_url: http://localhost:9089/v1
-# providers:
-#   gemini:
-#     api_key: palsu-ga-masalah-karena-diambil-dari-env-jembatan
-# fallback_providers:
-# - provider: gemini
-#   model: gemini-3-flash-preview
-#   base_url: http://localhost:9089/v1
-#   api_key: palsu-ga-masalah
-# - provider: gemini
-#   model: gemini-2.5-flash
-#   base_url: http://localhost:9089/v1
-#   api_key: palsu-ga-masalah
+providers: {}
+fallback_providers: []
 credential_pool_strategies:
   gemini: round_robin
 toolsets:
@@ -160,6 +150,7 @@ compression:
   hygiene_hard_message_limit: 60
   protect_first_n: 2
   abort_on_summary_failure: false
+  codex_gpt55_autoraise: true
 prompt_caching:
   cache_ttl: 5m
 openrouter:
@@ -570,6 +561,7 @@ sessions:
 onboarding:
   seen:
     busy_input_prompt: true
+  profile_build: ask
 updates:
   pre_update_backup: false
   backup_keep: 5
@@ -596,7 +588,7 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 27
+_config_version: 28
 WHATSAPP_HOME_CHANNEL: 70729588568201@lid
 group_sessions_per_user: true
 platform_toolsets:

@@ -20,17 +20,17 @@
       "schedule_display": "0 15 * * *",
       "repeat": {
         "times": null,
-        "completed": 30
+        "completed": 31
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-14T16:01:06.660356+07:00",
-      "next_run_at": "2026-06-09T15:00:00+07:00",
-      "last_run_at": "2026-06-08T15:01:15.113275+07:00",
-      "last_status": "ok",
-      "last_error": null,
+      "next_run_at": "2026-06-10T15:00:00+07:00",
+      "last_run_at": "2026-06-09T15:00:09.541071+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Error code: 400 - [{'error': {'code': 400, 'message': 'Please pass a valid API key', 'status': 'INVALID_ARGUMENT'}}]",
       "last_delivery_error": null,
       "deliver": "origin",
       "origin": {
@@ -62,15 +62,15 @@
       "schedule_display": "0 10 * * 1-5",
       "repeat": {
         "times": null,
-        "completed": 17
+        "completed": 18
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-18T10:53:02.959780+07:00",
-      "next_run_at": "2026-06-09T10:00:00+07:00",
-      "last_run_at": "2026-06-08T10:00:37.790274+07:00",
+      "next_run_at": "2026-06-10T10:00:00+07:00",
+      "last_run_at": "2026-06-09T10:02:56.456926+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -146,15 +146,15 @@
       "schedule_display": "0 7 * * *",
       "repeat": {
         "times": null,
-        "completed": 14
+        "completed": 15
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-31T13:11:53.837144+07:00",
-      "next_run_at": "2026-06-09T07:00:00+07:00",
-      "last_run_at": "2026-06-08T07:00:36.134037+07:00",
+      "next_run_at": "2026-06-10T07:00:00+07:00",
+      "last_run_at": "2026-06-09T07:00:22.544528+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -172,5 +172,5 @@
       "workdir": null
     }
   ],
-  "updated_at": "2026-06-09T01:55:06.738027+07:00"
+  "updated_at": "2026-06-09T15:00:09.541570+07:00"
 }
