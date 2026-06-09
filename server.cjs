@@ -63,12 +63,12 @@ const MODEL_ALIASES = {
 
 const MEMORY_CONFIG = {
   expiry_enabled: false,
-  idle_timeout_minutes: 15,
+  idle_timeout_minutes: 240,
   daily_reset_hour: 7,
-  max_turns: 10,
-  trim_chars: 150,
-  summary_threshold: 40,
-  injection_turns: 8,
+  max_turns: 6,        
+  trim_chars: 120,     
+  summary_threshold: 15,
+  injection_turns: 4,  
 };
 
 function resolveModel(requested) {
@@ -618,9 +618,14 @@ async function handleChat(req, res) {
           m.content !== ERROR_MSG &&
           !HERMES_META_PATTERN.test(m.content || '')
         )
-        .map(m => ({ role: m.role, content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars) }));
-      
+        .map(m => ({ 
+          role: m.role, 
+          // Wajib di-slice di sini sebelum masuk ke Set pembanding!
+          content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars) 
+        }));
+
       const existingTurns = memoryData?.turns || [];
+      // Sekarang pembandingnya presisi karena text dari DB dan text baru sama-sama maksimal sepanjang trim_chars
       const existingContents = new Set(existingTurns.map(t => t.role + ':' + t.content));
       const dedupedNew = newTurns.filter(t => !existingContents.has(t.role + ':' + t.content));
 
