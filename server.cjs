@@ -655,11 +655,11 @@ app.get('/v1/models', (_, res) => res.json(MODELS_LIST));
 app.use((req, res) => {
   if (req.method === 'POST') return handleChat(req, res);
   if (req.path === '/' || req.path === '') return res.redirect('/dashboard');
-  return res.json({ status: 'Hermes Bridge Active', engine: 'Sebastian Engine v10.4' });
+  return res.json({ status: 'Hermes Bridge Active', engine: 'Sebastian Engine v11' });
 });
 
 app.listen(PORT, () => {
-  LOG.boot(`Hermes v10.4 running on :${PORT}`);
+  LOG.boot(`Hermes v11 running on :${PORT}`);
   LOG.boot(`Dashboard → http://localhost:${PORT}/dashboard`);
   LOG.boot(`Pool: ${TOKEN_POOL.length} tokens | Default: ${DEFAULT_MODEL}`);
   LOG.boot(`Timeout: normal=${TIMEOUT_NORMAL}ms tool-chain=${TIMEOUT_TOOL}ms`);
