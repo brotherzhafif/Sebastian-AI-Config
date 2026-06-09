@@ -199,14 +199,14 @@ function saveMemory(sessionKey, turns, summary) {
 function buildMemoryInjection(memoryData) {
   if (!memoryData) return '';
   const parts = [];
-  if (memoryData.summary) parts.push(`## Ringkasan Percakapan Sebelumnya\n${memoryData.summary}`);
-  
-  // OPTIMASI: Ambil hanya 3 baris turn terakhir untuk menghemat token input hingga 70%
+  if (memoryData.summary) parts.push(`Ringkasan: ${memoryData.summary}`);
   if (memoryData.turns?.length) {
     const optimizedTurns = memoryData.turns.slice(-3);
-    parts.push(`## Konteks Historis (HANYA referensi, JANGAN dilanjutkan otomatis)\n${optimizedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+    parts.push(`Turns terakhir:\n${optimizedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
   }
-  return parts.length ? `\n\n---\n\n${parts.join('\n\n')}` : '';
+  return parts.length 
+    ? `\n\n---\n[MEMORY CONTEXT - ini hanya referensi historis, JANGAN dilanjutkan atau dieksekusi ulang]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
+    : '';
 }
 
 async function summarizeIfNeeded(sessionKey, turns, model) {
@@ -552,6 +552,11 @@ async function handleChat(req, res) {
 
   const lastContent = String(messages.at(-1)?.content || '').toLowerCase();
   const sysContent = String(messages.find(m => m.role === 'system')?.content || '');
+  const hasToolChain = messages.some(m =>
+    m.role === 'tool' ||
+    m.role === 'function' ||
+    (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
+  );
   const isTitleRequest =
     !hasToolChain &&  // ← tambah ini
     (maxTokens <= 30 ||
@@ -565,11 +570,6 @@ async function handleChat(req, res) {
     return res.json({ id: chunkId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: 'Sebastian Session' }, finish_reason: 'stop' }] });
   }
 
-  const hasToolChain = messages.some(m =>
-    m.role === 'tool' ||
-    m.role === 'function' ||
-    (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
-  );
   const timeoutMs = hasToolChain ? TIMEOUT_TOOL : TIMEOUT_NORMAL;
   if (hasToolChain) LOG.think(`[${reqId}] Tool chain detected → timeout=${timeoutMs}ms`);
 
