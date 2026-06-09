@@ -562,7 +562,8 @@ async function handleChat(req, res) {
     (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
   );
   const isTitleRequest =
-    !hasToolChain &&  // ← tambah ini
+    !hasToolChain && 
+    !body.tools?.length &&
     (maxTokens <= 30 ||
     lastContent.includes('title') ||
     lastContent.includes('judul') ||
