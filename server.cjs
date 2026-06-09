@@ -572,11 +572,11 @@ async function handleChat(req, res) {
   const timeoutMs = hasToolChain ? TIMEOUT_TOOL : TIMEOUT_NORMAL;
   if (hasToolChain) LOG.think(`[${reqId}] Tool chain detected → timeout=${timeoutMs}ms`);
 
+  const firstUserMsg = String(messages.find(m => m.role === 'user')?.content || '');
+  const isCronjob = /\[IMPORTANT:.*cron job/i.test(firstUserMsg);
   const sessionKey = isCronjob
   ? `cron_${hashKey(firstUserMsg.slice(0, 100))}`
   : hashKey(sysContent.slice(0, 200));
-  const firstUserMsg = String(messages.find(m => m.role === 'user')?.content || '');
-  const isCronjob = /\[IMPORTANT:.*cron job/i.test(firstUserMsg);
   const ERROR_MSG = 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan';
 
   const memoryData = isCronjob ? null : await loadMemory(sessionKey);
