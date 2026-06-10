@@ -62,7 +62,7 @@ const MODEL_ALIASES = {
 };
 
 const MEMORY_CONFIG = {
-  max_turns: 8,
+  max_turns: 16,
   trim_chars: 150,
   injection_turns: 4,
   summary_threshold: 15,
@@ -666,15 +666,16 @@ async function handleChat(req, res) {
           !HERMES_META_PATTERN.test(m.content || '') &&
           !(m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
         )
-        .map(m => ({ role: m.role, content: m.content }));
+        .map(m => ({ role: m.role, content: m.content, ts: Date.now() }));
 
       const newTurns = allClientTurns.slice(existingCount);
 
-      if (assistantText) {
-        newTurns.push({ role: 'assistant', content: inlineSummary || assistantText });
-      }
-
       const mergedTurns = [...existingTurns, ...newTurns];
+
+      if (assistantText) {
+        const contentToSave = inlineSummary || assistantText;
+        mergedTurns.push({ role: 'assistant', content: contentToSave, ts: Date.now() });
+      }
       LOG.memory(`[${reqId}] Turns: existing=${existingCount} new=${newTurns.length} total=${mergedTurns.length}`);
 
       let sessionSummary = localMemory?.summary || null;

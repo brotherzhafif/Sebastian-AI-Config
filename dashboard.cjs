@@ -292,12 +292,16 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
           }
           let rows = '';
           data.forEach((m, i) => {
-            const turnsHtml = (m.turns || []).map(t =>
-              '<div style="padding:4px 8px;border-left:2px solid var(--border);margin:4px 0">'
-              + '<span style="color:' + (t.role === 'user' ? 'var(--blue)' : 'var(--green)') + ';font-size:10px;text-transform:uppercase">' + t.role + '</span>'
-              + '<span style="color:var(--text);font-size:12px;margin-left:8px">' + t.content + '</span>'
-              + '</div>'
-            ).join('');
+            const turnsHtml = (m.turns || [])
+            .sort((a, b) => (a.ts || 0) - (b.ts || 0))
+            .map(t => {
+              const time = t.ts ? new Date(t.ts).toLocaleTimeString('id-ID', {timeZone:'Asia/Jakarta', hour:'2-digit', minute:'2-digit'}) : '';
+              return '<div style="padding:4px 8px;border-left:2px solid var(--border);margin:4px 0">'
+                + '<span style="color:' + (t.role === 'user' ? 'var(--blue)' : 'var(--green)') + ';font-size:10px;text-transform:uppercase">' + t.role + '</span>'
+                + (time ? '<span style="color:var(--muted);font-size:10px;margin-left:6px">' + time + '</span>' : '')
+                + '<span style="color:var(--text);font-size:12px;margin-left:8px">' + t.content + '</span>'
+                + '</div>';
+            }).join('');
 
             rows += '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleTurns(' + i + ')">'
               + '<td style="padding:8px;font-family:monospace;color:var(--accent)">' + m.session_key + '</td>'
