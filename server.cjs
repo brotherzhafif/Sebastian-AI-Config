@@ -169,6 +169,12 @@ async function loadLocalMemory(sessionKey) {
     .eq('session_key', sessionKey)
     .maybeSingle();
   if (error || !data) return null;
+
+  // Filter tool-related turns dari stored memory
+  if (data.turns) {
+    data.turns = data.turns.filter(t => t.role !== 'tool' && t.role !== 'function');
+  }
+
   return data;
 }
 
@@ -708,16 +714,26 @@ async function handleChat(req, res) {
     const HERMES_META_PATTERN = /<userRequest>|<environment_info>|<workspace_info>|<editorContext>|<attachments>|<context>|<reminderInstructions>/i;
 
     if (!isCronjob) {
+      const assistantText = geminiRes.candidates?.[0]?.content?.parts
+        ?.filter(p => p.text)
+        ?.map(p => p.text)
+        ?.join('') || '';
+
       const newTurns = messages
-        .filter(m =>
-          (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
-          m.content !== ERROR_MSG &&
-          !HERMES_META_PATTERN.test(m.content || '')
-        )
-        .map(m => ({
-          role: m.role,
-          content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars)
-        }));
+      .filter(m =>
+        (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
+        m.content !== ERROR_MSG &&
+        !HERMES_META_PATTERN.test(m.content || '') &&
+        !(m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
+      )
+      .map(m => ({
+        role: m.role,
+        content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars)
+      }));
+
+      if (assistantText) {
+        newTurns.push({ role: 'assistant', content: assistantText.slice(0, MEMORY_CONFIG.trim_chars) });
+      }
 
       const existingTurns = localMemory?.turns || [];
       const existingContents = new Set(existingTurns.map(t => t.role + ':' + t.content));
