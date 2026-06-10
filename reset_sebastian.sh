@@ -24,6 +24,9 @@ echo "🔄 Me-restart Sebastian Gateway..."
 if command -v sebastian &> /dev/null; then
   sebastian gateway stop 2>/dev/null || true
   sleep 2
+  cd hermes-agent
+  npm install
+  sleep 2
   sebastian gateway start
   echo "✓ Sebastian Gateway aktif."
 else

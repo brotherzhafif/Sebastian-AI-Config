@@ -8,6 +8,7 @@ credential_pool_strategies:
   gemini: round_robin
 toolsets:
 - hermes-cli
+max_concurrent_sessions: null
 agent:
   max_turns: 30
   gateway_timeout: 1800
@@ -219,6 +220,13 @@ auxiliary:
     api_key: ''
     timeout: 30
     extra_body: {}
+  tts_audio_tags:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 30
+    extra_body: {}
   triage_specifier:
     provider: auto
     model: ''
@@ -334,6 +342,11 @@ tts:
   openai:
     model: gpt-4o-mini-tts
     voice: alloy
+  gemini:
+    model: gemini-2.5-flash-preview-tts
+    voice: Kore
+    audio_tags: false
+    persona_prompt_file: ''
   xai:
     voice_id: eve
     language: en
@@ -380,6 +393,7 @@ context:
 memory:
   memory_enabled: true
   user_profile_enabled: true
+  write_approval: false
   memory_char_limit: 1000
   user_char_limit: 1000
   provider: ''
@@ -409,6 +423,7 @@ skills:
   inline_shell: false
   inline_shell_timeout: 10
   guard_agent_created: false
+  write_approval: false
   creation_nudge_interval: 15
 curator:
   enabled: true
@@ -588,7 +603,7 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 28
+_config_version: 29
 WHATSAPP_HOME_CHANNEL: 70729588568201@lid
 group_sessions_per_user: true
 platform_toolsets:
