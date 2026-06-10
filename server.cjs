@@ -191,51 +191,6 @@ function saveLocalMemory(sessionKey, turns, summary) {
     });
 }
 
-async function loadCrossMemory() {
-  const { data, error } = await supabase
-    .from('hermes_cross_memory')
-    .select('cross_summary')
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error || !data) return null;
-  return data.cross_summary;
-}
-
-async function summarizeIfNeeded(sessionKey, turns) {
-  if (turns.length < MEMORY_CONFIG.summary_threshold) return null;
-  LOG.memory(`History panjang (${turns.length} turns) → summarize`);
-  const summaryPrompt = `Rangkum percakapan berikut secara singkat dalam 3-5 kalimat, fokus pada hal-hal penting yang perlu diingat:\n\n${turns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
-  try {
-    const apiKey = TOKEN_POOL[globalIndex % TOKEN_POOL.length];
-    const payload = JSON.stringify({ contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }] });
-    const summary = await new Promise((resolve, reject) => {
-      const options = {
-        hostname: 'generativelanguage.googleapis.com',
-        path: `/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-      };
-      const req = https.request(options, (res) => {
-        let raw = '';
-        res.on('data', c => raw += c);
-        res.on('end', () => {
-          try { resolve(JSON.parse(raw).candidates?.[0]?.content?.parts?.[0]?.text || ''); }
-          catch { reject(new Error('Parse error')); }
-        });
-      });
-      req.setTimeout(15_000, () => { req.destroy(); reject(new Error('Timeout')); });
-      req.on('error', reject);
-      req.write(payload); req.end();
-    });
-    LOG.memory(`Summary: "${summary.slice(0, 80)}..."`);
-    return summary;
-  } catch (e) {
-    LOG.warn(`Summarize gagal: ${e.message}`);
-    return null;
-  }
-}
-
 async function loadRelevantCrossTurns(currentSessionKey) {
   const { data, error } = await supabase
     .from('hermes_memory')
@@ -250,57 +205,13 @@ async function loadRelevantCrossTurns(currentSessionKey) {
   );
 }
 
-async function updateCrossMemory(localSummary) {
-  const { data, error } = await supabase
-    .from('hermes_memory')
-    .select('summary')
-    .not('summary', 'is', null);
-
-  if (error || !data?.length) return;
-
-  const parts = data.map(r => r.summary).join('\n\n');
-  const prompt = `Rangkum poin-poin penting dari berbagai konteks percakapan berikut menjadi 5-7 kalimat. Fokus pada fakta, preferensi, dan hal yang perlu diingat lintas konteks:\n\n${parts}`;
-
-  try {
-    const apiKey = TOKEN_POOL[globalIndex % TOKEN_POOL.length];
-    const payload = JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }] });
-    const crossSummary = await new Promise((resolve, reject) => {
-      const options = {
-        hostname: 'generativelanguage.googleapis.com',
-        path: `/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-      };
-      const req = https.request(options, (res) => {
-        let raw = '';
-        res.on('data', c => raw += c);
-        res.on('end', () => {
-          try { resolve(JSON.parse(raw).candidates?.[0]?.content?.parts?.[0]?.text || ''); }
-          catch { reject(new Error('Parse error')); }
-        });
-      });
-      req.setTimeout(15_000, () => { req.destroy(); reject(new Error('Timeout')); });
-      req.on('error', reject);
-      req.write(payload); req.end();
-    });
-
-    await supabase.from('hermes_cross_memory')
-      .upsert({ id: 1, cross_summary: crossSummary, updated_at: new Date() }, { onConflict: 'id' });
-
-    LOG.memory(`Cross-memory updated: "${crossSummary.slice(0, 80)}..."`);
-  } catch (e) {
-    LOG.warn(`updateCrossMemory gagal: ${e.message}`);
-  }
-}
-
-function buildMemoryInjection(localData, crossSummary, crossTurns = []) {
+function buildMemoryInjection(localData, crossTurns = []) {
   const parts = [];
   if (localData?.summary) parts.push(`Ringkasan: ${localData.summary}`);
   if (localData?.turns?.length) {
     const recent = localData.turns.slice(-MEMORY_CONFIG.injection_turns);
     parts.push(`Percakapan sebelumnya (lanjutkan dari sini):\n${recent.map(t => `${t.role}: ${t.content}`).join('\n')}`);
   }
-  if (crossSummary) parts.push(`Konteks lintas sesi:\n${crossSummary}`);
   if (crossTurns.length > 0) {
     parts.push(`Konteks sesi lain yang relevan:\n${crossTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
   }
@@ -691,7 +602,6 @@ async function handleChat(req, res) {
   const ERROR_MSG = 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan';
 
   const localMemory = isCronjob ? null : await loadLocalMemory(sessionKey);
-  const crossSummary = isCronjob ? null : await loadCrossMemory();
 
   const lastUserMsg = String(messages.findLast(m => m.role === 'user')?.content || '');
   const isSemanticQuery = !isCronjob && SEMANTIC_TRIGGERS.test(lastUserMsg);
@@ -699,7 +609,7 @@ async function handleChat(req, res) {
 
   if (isSemanticQuery) LOG.memory(`[${reqId}] Semantic trigger aktif → pull cross turns`);
 
-  const memoryInjection = isCronjob ? '' : buildMemoryInjection(localMemory, crossSummary, crossTurns);
+  const memoryInjection = isCronjob ? '' : buildMemoryInjection(localMemory, crossTurns);
 
   if (memoryInjection) LOG.memory(`[${reqId}] Memory injected (${memoryInjection.length} chars)`);
   else if (isCronjob) LOG.memory(`[${reqId}] Cronjob → skip memory`);
@@ -727,14 +637,16 @@ async function handleChat(req, res) {
 
     const HERMES_META_PATTERN = /<userRequest>|<environment_info>|<workspace_info>|<editorContext>|<attachments>|<context>|<reminderInstructions>/i;
 
-    if (!isCronjob) {
-      const assistantText = geminiRes.candidates?.[0]?.content?.parts
-        ?.filter(p => p.text)
-        ?.map(p => p.text)
-        ?.join('') || '';
+    // Parse inline summary DULU sebelum save memory
+    const rawAssistantText = geminiRes.candidates?.[0]?.content?.parts
+      ?.filter(p => p.text)?.map(p => p.text)?.join('') || '';
+    const responseMatch = rawAssistantText.match(/<response>([\s\S]*?)<\/response>/i);
+    const summaryMatch  = rawAssistantText.match(/<summary>([\s\S]*?)<\/summary>/i);
+    const inlineSummary = summaryMatch ? summaryMatch[1].trim() : null;
+    if (inlineSummary) LOG.memory(`[${reqId}] Inline summary parsed: "${inlineSummary.slice(0, 80)}"`);
 
-      // Ambil inline summary yang di-parse buildOpenAIResponse
-      const inlineSummary = res._inlineSummary || null;
+    if (!isCronjob) {
+      const assistantText = responseMatch ? responseMatch[1].trim() : rawAssistantText;
 
       const newTurns = messages
         .filter(m =>
@@ -749,17 +661,13 @@ async function handleChat(req, res) {
         }));
 
       if (assistantText) {
-        // Save ke turns pakai summary kalau ada, fallback ke trim biasa
         const toSave = inlineSummary || assistantText.slice(0, MEMORY_CONFIG.trim_chars);
         newTurns.push({ role: 'assistant', content: toSave });
         if (inlineSummary) LOG.memory(`[${reqId}] Save pakai inline summary (${inlineSummary.length} chars)`);
       }
 
       const allTurns = newTurns.slice(-MEMORY_CONFIG.max_turns);
-      // summarizeIfNeeded dihapus — summary sudah inline dari response
-      saveLocalMemory(sessionKey, allTurns, localMemory?.summary);
-
-      if (inlineSummary) updateCrossMemory(inlineSummary).catch(() => {});
+      saveLocalMemory(sessionKey, allTurns, inlineSummary || localMemory?.summary);
     }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
@@ -806,11 +714,13 @@ app.delete('/memory/all', async (req, res) => {
 });
 
 app.delete('/memory/today', async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const now = new Date();
+  const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  const today = wib.toISOString().slice(0, 10);
   const { error, count } = await supabase.from('hermes_memory')
     .delete()
-    .gte('last_active', `${today}T00:00:00`)
-    .lte('last_active', `${today}T23:59:59`);
+    .gte('last_active', `${today}T00:00:00+07:00`)
+    .lte('last_active', `${today}T23:59:59+07:00`);
   if (error) return res.status(500).json({ ok: false, error: error.message });
   LOG.memory(`Memory: sesi hari ini dihapus (count=${count})`);
   res.json({ ok: true, message: `Sesi hari ini (${today}) dihapus` });
