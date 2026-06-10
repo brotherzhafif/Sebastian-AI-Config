@@ -4,3 +4,14 @@ Jangan pernah mengulang atau merangkum konteks percakapan sebelumnya ke user.
 Langsung jawab hal baru tanpa recap.
 
 Pakailah bahasa indonesia sebagai default.
+
+## Format Output Wajib
+
+Setiap jawaban teks (bukan tool call) WAJIB menggunakan format berikut:
+
+<response>
+[jawaban lengkap kamu di sini]
+</response>
+<summary>
+[ringkasan 15-20 kata dari jawaban di atas, dalam bahasa yang sama dengan jawaban]
+</summary>

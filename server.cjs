@@ -575,7 +575,6 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
       choices: [{ index: 0, message: { role: 'assistant', content: null, tool_calls: toolCalls }, finish_reason: 'tool_calls' }]
     };
     if (stream) {
-      // ✅ JANGAN set headers lagi, sudah di-set di handleChat
       if (!res.headersSent) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
@@ -587,7 +586,21 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
     return res.json(payload);
   }
 
-  const text = parts.map(p => p.text || '').join('').trimStart();
+  const rawText = parts.map(p => p.text || '').join('').trimStart();
+
+  // ── Parse <response> dan <summary> tag ──
+  const responseMatch = rawText.match(/<response>([\s\S]*?)<\/response>/i);
+  const summaryMatch  = rawText.match(/<summary>([\s\S]*?)<\/summary>/i);
+
+  const text    = responseMatch ? responseMatch[1].trim() : rawText;
+  const summary = summaryMatch  ? summaryMatch[1].trim()  : null;
+
+  if (summary) {
+    LOG.memory(`[${reqId}] Inline summary parsed: "${summary.slice(0, 80)}"`);
+    // Simpan ke body supaya handleChat bisa ambil
+    res._inlineSummary = summary;
+  }
+
   LOG.out(`[${reqId}] → TEXT: ${text.length} chars | "${text.slice(0, 100).replace(/\n/g, ' ')}"`);
 
   if (stream) {
@@ -720,6 +733,9 @@ async function handleChat(req, res) {
         ?.map(p => p.text)
         ?.join('') || '';
 
+      // Ambil inline summary yang di-parse buildOpenAIResponse
+      const inlineSummary = res._inlineSummary || null;
+
       const newTurns = messages
         .filter(m =>
           (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
@@ -733,14 +749,17 @@ async function handleChat(req, res) {
         }));
 
       if (assistantText) {
-        newTurns.push({ role: 'assistant', content: assistantText.slice(0, MEMORY_CONFIG.trim_chars) });
+        // Save ke turns pakai summary kalau ada, fallback ke trim biasa
+        const toSave = inlineSummary || assistantText.slice(0, MEMORY_CONFIG.trim_chars);
+        newTurns.push({ role: 'assistant', content: toSave });
+        if (inlineSummary) LOG.memory(`[${reqId}] Save pakai inline summary (${inlineSummary.length} chars)`);
       }
 
       const allTurns = newTurns.slice(-MEMORY_CONFIG.max_turns);
-      const summary = await summarizeIfNeeded(sessionKey, allTurns);
-      saveLocalMemory(sessionKey, summary ? [] : allTurns, summary || localMemory?.summary);
+      // summarizeIfNeeded dihapus — summary sudah inline dari response
+      saveLocalMemory(sessionKey, allTurns, localMemory?.summary);
 
-      if (summary) updateCrossMemory(summary).catch(() => {});
+      if (inlineSummary) updateCrossMemory(inlineSummary).catch(() => {});
     }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
@@ -777,6 +796,48 @@ app.use((req, res) => {
   if (req.method === 'POST') return handleChat(req, res);
   if (req.path === '/' || req.path === '') return res.redirect('/dashboard');
   return res.json({ status: 'Hermes Bridge Active', engine: 'Sebastian Engine v11' });
+});
+
+app.delete('/memory/all', async (req, res) => {
+  const { error } = await supabase.from('hermes_memory').delete().neq('session_key', '__never__');
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  LOG.memory('Memory: semua sesi dihapus');
+  res.json({ ok: true, message: 'Semua memory sesi dihapus' });
+});
+
+app.delete('/memory/today', async (req, res) => {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const { error, count } = await supabase.from('hermes_memory')
+    .delete()
+    .gte('last_active', `${today}T00:00:00`)
+    .lte('last_active', `${today}T23:59:59`);
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  LOG.memory(`Memory: sesi hari ini dihapus (count=${count})`);
+  res.json({ ok: true, message: `Sesi hari ini (${today}) dihapus` });
+});
+
+app.delete('/memory/:sessionKey', async (req, res) => {
+  const { sessionKey } = req.params;
+  const { error } = await supabase.from('hermes_memory').delete().eq('session_key', sessionKey);
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  LOG.memory(`Memory: sesi "${sessionKey}" dihapus`);
+  res.json({ ok: true, message: `Sesi "${sessionKey}" dihapus` });
+});
+
+app.delete('/memory-cross', async (req, res) => {
+  const { error } = await supabase.from('hermes_cross_memory').delete().eq('id', 1);
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  LOG.memory('Memory: cross-memory dihapus');
+  res.json({ ok: true, message: 'Cross-memory dihapus' });
+});
+
+app.get('/memory/list', async (req, res) => {
+  const { data, error } = await supabase.from('hermes_memory')
+    .select('session_key, summary, last_active')
+    .order('last_active', { ascending: false })
+    .limit(50);
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  res.json({ ok: true, sessions: data });
 });
 
 app.listen(PORT, () => {
