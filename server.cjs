@@ -657,7 +657,12 @@ async function handleChat(req, res) {
       const assistantText = responseMatch ? responseMatch[1].trim() : rawAssistantText;
 
       const existingTurns = localMemory?.turns || [];
-      const existingCount = existingTurns.filter(t => t.role === 'user' || t.role === 'assistant').length;
+
+      // [FIX] Pakai content-anchor bukan count/timestamp
+      // Cari turn user/assistant terakhir yang tersimpan, lalu ambil sisanya dari client
+      const lastExisting = existingTurns
+        .filter(t => t.role === 'user' || t.role === 'assistant')
+        .at(-1);
 
       const allClientTurns = messages
         .filter(m =>
@@ -666,20 +671,44 @@ async function handleChat(req, res) {
           !HERMES_META_PATTERN.test(m.content || '') &&
           !(m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
         )
-        .map(m => ({ role: m.role, content: m.content, ts: Date.now() }));
+        .map(m => ({ role: m.role, content: m.content, ts: m.created_at ? new Date(m.created_at).getTime() : Date.now() }));
 
-      const newTurns = allClientTurns.slice(existingCount);
+      let newTurns;
+      if (!lastExisting) {
+        // Belum ada yang tersimpan, ambil semua
+        newTurns = allClientTurns;
+      } else {
+        // Cari index terakhir di allClientTurns yang match lastExisting
+        const anchorIdx = allClientTurns.findLastIndex(
+          t => t.role === lastExisting.role &&
+               t.content?.trim() === lastExisting.content?.trim()
+        );
+        if (anchorIdx >= 0) {
+          newTurns = allClientTurns.slice(anchorIdx + 1);
+        } else {
+          // Fallback: tidak ketemu anchor, hitung selisih count
+          const existingCount = existingTurns.filter(
+            t => t.role === 'user' || t.role === 'assistant'
+          ).length;
+          newTurns = allClientTurns.slice(existingCount);
+          LOG.warn(`[${reqId}] Anchor not found, fallback ke count (existingCount=${existingCount})`);
+        }
+      }
 
       const mergedTurns = [...existingTurns, ...newTurns];
 
+      // [FIX] Simpan assistantText (bukan inlineSummary) sebagai konten turn
+      // inlineSummary hanya dipakai untuk sessionSummary
       if (assistantText) {
-        const contentToSave = inlineSummary || assistantText;
-        mergedTurns.push({ role: 'assistant', content: contentToSave, ts: Date.now() });
+        mergedTurns.push({ role: 'assistant', content: assistantText, ts: Date.now() });
       }
-      LOG.memory(`[${reqId}] Turns: existing=${existingCount} new=${newTurns.length} total=${mergedTurns.length}`);
 
-      let sessionSummary = localMemory?.summary || null;
-      if (mergedTurns.length >= MEMORY_CONFIG.summary_threshold) {
+      LOG.memory(`[${reqId}] Turns: existing=${existingTurns.length} new=${newTurns.length} total=${mergedTurns.length}`);
+
+      let sessionSummary = inlineSummary || localMemory?.summary || null;
+      if (inlineSummary) LOG.memory(`[${reqId}] Session summary dari inline: "${inlineSummary.slice(0, 80)}"`);
+
+      if (!inlineSummary && mergedTurns.length >= MEMORY_CONFIG.summary_threshold) {
         const summaryPrompt = `Buat ringkasan singkat (maks 2 kalimat) dari percakapan berikut:\n${mergedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
         try {
           const summaryBody = { messages: [{ role: 'user', content: summaryPrompt }], _memoryInjection: '' };
