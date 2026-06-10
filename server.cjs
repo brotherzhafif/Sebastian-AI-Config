@@ -298,14 +298,14 @@ function buildMemoryInjection(localData, crossSummary, crossTurns = []) {
   if (localData?.summary) parts.push(`Ringkasan: ${localData.summary}`);
   if (localData?.turns?.length) {
     const recent = localData.turns.slice(-MEMORY_CONFIG.injection_turns);
-    parts.push(`History terakhir:\n${recent.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+    parts.push(`Percakapan sebelumnya (lanjutkan dari sini):\n${recent.map(t => `${t.role}: ${t.content}`).join('\n')}`);
   }
-  if (crossSummary) parts.push(`Konteks lintas sesi (referensi):\n${crossSummary}`);
+  if (crossSummary) parts.push(`Konteks lintas sesi:\n${crossSummary}`);
   if (crossTurns.length > 0) {
-    parts.push(`Konteks sesi-sesi sebelumnya:\n${crossTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+    parts.push(`Konteks sesi lain yang relevan:\n${crossTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
   }
   return parts.length
-    ? `\n\n---\n[MEMORY CONTEXT - jangan disampaikan/disinggung ke user. Gunakan sebagai konteks internal.]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
+    ? `\n\n---\n[MEMORY CONTEXT - gunakan sebagai konteks internal, jangan diungkapkan ke user. Jika user bertanya "tadi" atau "sebelumnya", jawab berdasarkan ini.]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
     : '';
 }
 
