@@ -498,7 +498,7 @@ async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
   body._cachedPayload = toGeminiPayload(body, reqId, body._memoryInjection);
   
   const total = TOKEN_POOL.length;
-  const MAX_ROUNDS = 1;
+  const MAX_ROUNDS = 2;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     LOG.think(`[${reqId}] Model=${model} | Round ${round + 1}/${MAX_ROUNDS}`);
@@ -670,7 +670,8 @@ async function handleChat(req, res) {
   if (hasToolChain) LOG.think(`[${reqId}] Tool chain detected → timeout=${timeoutMs}ms`);
 
   const firstUserMsg = String(messages.find(m => m.role === 'user')?.content || '');
-  const isCronjob = /\[IMPORTANT:.*cron job/i.test(firstUserMsg);
+  const isCronjob = /\[IMPORTANT:.*cron job/i.test(firstUserMsg) ||
+                  /cron job.*failed/i.test(firstUserMsg);
   const sessionKey = isCronjob
     ? `cron_${hashKey(firstUserMsg.slice(0, 100))}`
     : hashKey(sysContent.slice(0, 200));
