@@ -186,7 +186,7 @@ async function loadLocalMemory(sessionKey) {
 }
 
 function saveLocalMemory(sessionKey, turns, summary) {
-  const trimmedTurns = turns.slice(-MEMORY_CONFIG.max_turns);
+  const trimmedTurns = turns;
   supabase.from('hermes_memory')
     .upsert(
       { session_key: sessionKey, summary: summary || null, turns: trimmedTurns, updated_at: new Date(), last_active: new Date() },
@@ -656,26 +656,46 @@ async function handleChat(req, res) {
     if (!isCronjob) {
       const assistantText = responseMatch ? responseMatch[1].trim() : rawAssistantText;
 
-      const newTurns = messages
+      const existingTurns = localMemory?.turns || [];
+      const existingCount = existingTurns.filter(t => t.role === 'user' || t.role === 'assistant').length;
+
+      const allClientTurns = messages
         .filter(m =>
           (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
           m.content !== ERROR_MSG &&
           !HERMES_META_PATTERN.test(m.content || '') &&
           !(m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
         )
-        .map(m => ({
-          role: m.role,
-          content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars)
-        }));
+        .map(m => ({ role: m.role, content: m.content }));
+
+      const newTurns = allClientTurns.slice(existingCount);
 
       if (assistantText) {
-        const toSave = inlineSummary || assistantText.slice(0, MEMORY_CONFIG.trim_chars);
-        newTurns.push({ role: 'assistant', content: toSave });
-        if (inlineSummary) LOG.memory(`[${reqId}] Save pakai inline summary (${inlineSummary.length} chars)`);
+        newTurns.push({ role: 'assistant', content: inlineSummary || assistantText });
       }
 
-      const allTurns = newTurns.slice(-MEMORY_CONFIG.max_turns);
-      saveLocalMemory(sessionKey, allTurns, inlineSummary || localMemory?.summary);
+      const mergedTurns = [...existingTurns, ...newTurns];
+      LOG.memory(`[${reqId}] Turns: existing=${existingCount} new=${newTurns.length} total=${mergedTurns.length}`);
+
+      let sessionSummary = localMemory?.summary || null;
+      if (mergedTurns.length >= MEMORY_CONFIG.summary_threshold) {
+        const summaryPrompt = `Buat ringkasan singkat (maks 2 kalimat) dari percakapan berikut:\n${mergedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
+        try {
+          const summaryBody = { messages: [{ role: 'user', content: summaryPrompt }], _memoryInjection: '' };
+          summaryBody._cachedPayload = toGeminiPayload(summaryBody, reqId + '_sum', '');
+          const { res: sumRes } = await tryModelWithPool(summaryBody, DEFAULT_MODEL, globalIndex, reqId + '_sum', TIMEOUT_NORMAL);
+          const sumParts = sumRes?.candidates?.[0]?.content?.parts || [];
+          const sumRaw = sumParts.map(p => p.text || '').join('').trim();
+          const sumMatch = sumRaw.match(/<response>([\s\S]*?)<\/response>/i);
+          sessionSummary = sumMatch ? sumMatch[1].trim() : sumRaw;
+          LOG.memory(`[${reqId}] Session summary dibuat: "${sessionSummary.slice(0, 80)}"`);
+        } catch (e) {
+          LOG.warn(`[${reqId}] Gagal buat session summary: ${e.message}`);
+        }
+      }
+
+      const turnLimit = MEMORY_CONFIG.max_turns + Math.floor(mergedTurns.length / MEMORY_CONFIG.summary_threshold);
+      saveLocalMemory(sessionKey, mergedTurns.slice(-turnLimit), sessionSummary);
     }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
