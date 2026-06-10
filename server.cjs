@@ -720,26 +720,22 @@ async function handleChat(req, res) {
         ?.join('') || '';
 
       const newTurns = messages
-      .filter(m =>
-        (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
-        m.content !== ERROR_MSG &&
-        !HERMES_META_PATTERN.test(m.content || '') &&
-        !(m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
-      )
-      .map(m => ({
-        role: m.role,
-        content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars)
-      }));
+        .filter(m =>
+          (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
+          m.content !== ERROR_MSG &&
+          !HERMES_META_PATTERN.test(m.content || '') &&
+          !(m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
+        )
+        .map(m => ({
+          role: m.role,
+          content: String(m.content || '').slice(0, MEMORY_CONFIG.trim_chars)
+        }));
 
       if (assistantText) {
         newTurns.push({ role: 'assistant', content: assistantText.slice(0, MEMORY_CONFIG.trim_chars) });
       }
 
-      const existingTurns = localMemory?.turns || [];
-      const existingContents = new Set(existingTurns.map(t => t.role + ':' + t.content));
-      const dedupedNew = newTurns.filter(t => !existingContents.has(t.role + ':' + t.content));
-
-      const allTurns = [...existingTurns, ...dedupedNew].slice(-MEMORY_CONFIG.max_turns);
+      const allTurns = newTurns.slice(-MEMORY_CONFIG.max_turns);
       const summary = await summarizeIfNeeded(sessionKey, allTurns);
       saveLocalMemory(sessionKey, summary ? [] : allTurns, summary || localMemory?.summary);
 
