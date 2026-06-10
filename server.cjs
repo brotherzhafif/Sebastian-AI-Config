@@ -734,13 +734,6 @@ app.delete('/memory/:sessionKey', async (req, res) => {
   res.json({ ok: true, message: `Sesi "${sessionKey}" dihapus` });
 });
 
-app.delete('/memory-cross', async (req, res) => {
-  const { error } = await supabase.from('hermes_cross_memory').delete().eq('id', 1);
-  if (error) return res.status(500).json({ ok: false, error: error.message });
-  LOG.memory('Memory: cross-memory dihapus');
-  res.json({ ok: true, message: 'Cross-memory dihapus' });
-});
-
 app.get('/memory/list', async (req, res) => {
   const { data, error } = await supabase.from('hermes_memory')
     .select('session_key, summary, last_active')
