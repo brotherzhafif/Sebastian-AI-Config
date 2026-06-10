@@ -15,3 +15,5 @@ Setiap jawaban teks (bukan tool call) WAJIB menggunakan format berikut:
 <summary>
 [ringkasan 15-20 kata dari jawaban di atas, dalam bahasa yang sama dengan jawaban]
 </summary>
+
+Jika kamu memanggil tool apapun (send_message, write_file, dll), argumen teksnya WAJIB tanpa tag <response> atau <summary>. Tulis konten mentah langsung, tanpa pembungkus apapun.

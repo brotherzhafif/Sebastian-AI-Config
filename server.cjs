@@ -104,6 +104,13 @@ const COMPRESSION_RULES = [
   [/  +/g, ' '], [/^ /gm, ''],
 ];
 
+function stripResponseTags(text) {
+  if (!text || typeof text !== 'string') return text;
+  const match = text.match(/<response>([\s\S]*?)<\/response>/i);
+  if (match) return match[1].trim();
+  return text.replace(/<summary>[\s\S]*?<\/summary>/gi, '').trim();
+}
+
 function compressText(text) {
   if (!text || typeof text !== 'string') return text;
   if (text.length < 100) return text;
@@ -475,10 +482,15 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
   const firstPart = parts[0];
 
   if (firstPart?.functionCall) {
-    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({
-      id: `call_${chunkId}_${i}`, type: 'function',
-      function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) }
-    }));
+    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => {
+      const cleanArgs = JSON.parse(JSON.stringify(p.functionCall.args || {}, (k, v) =>
+        typeof v === 'string' ? stripResponseTags(v) : v
+      ));
+      return {
+        id: `call_${chunkId}_${i}`, type: 'function',
+        function: { name: p.functionCall.name, arguments: JSON.stringify(cleanArgs) }
+      };
+    });
     LOG.out(`[${reqId}] → TOOL_CALLS: [${toolCalls.map(t => t.function.name).join(', ')}]`);
     const payload = {
       id: chunkId, object: 'chat.completion',
@@ -498,17 +510,13 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
   }
 
   const rawText = parts.map(p => p.text || '').join('').trimStart();
-
-  // ── Parse <response> dan <summary> tag ──
   const responseMatch = rawText.match(/<response>([\s\S]*?)<\/response>/i);
   const summaryMatch  = rawText.match(/<summary>([\s\S]*?)<\/summary>/i);
-
   const text    = responseMatch ? responseMatch[1].trim() : rawText;
   const summary = summaryMatch  ? summaryMatch[1].trim()  : null;
 
   if (summary) {
     LOG.memory(`[${reqId}] Inline summary parsed: "${summary.slice(0, 80)}"`);
-    // Simpan ke body supaya handleChat bisa ambil
     res._inlineSummary = summary;
   }
 
