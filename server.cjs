@@ -606,6 +606,8 @@ async function handleChat(req, res) {
                   /cron job.*failed/i.test(firstUserMsg);
   const sessionKey = isCronjob
     ? `cron_${hashKey(firstUserMsg.slice(0, 100))}`
+    : /asisten pribadi|sebastian/i.test(sysContent) ? 'sebastian'
+    : /expert ai programming|vs code/i.test(sysContent) ? 'copilot'
     : hashKey(sysContent.slice(0, 200));
   const ERROR_MSG = 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan';
 
