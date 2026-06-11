@@ -20,15 +20,15 @@
       "schedule_display": "0 15 * * *",
       "repeat": {
         "times": null,
-        "completed": 34
+        "completed": 35
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-14T16:01:06.660356+07:00",
-      "next_run_at": "2026-06-11T15:00:00+07:00",
-      "last_run_at": "2026-06-10T15:34:59.907642+07:00",
+      "next_run_at": "2026-06-12T15:00:00+07:00",
+      "last_run_at": "2026-06-11T15:01:14.904882+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -62,15 +62,15 @@
       "schedule_display": "0 10 * * 1-5",
       "repeat": {
         "times": null,
-        "completed": 24
+        "completed": 25
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-18T10:53:02.959780+07:00",
-      "next_run_at": "2026-06-11T10:00:00+07:00",
-      "last_run_at": "2026-06-10T10:00:23.408895+07:00",
+      "next_run_at": "2026-06-12T10:00:00+07:00",
+      "last_run_at": "2026-06-11T10:01:04.675615+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -104,15 +104,15 @@
       "schedule_display": "0 21 * * *",
       "repeat": {
         "times": null,
-        "completed": 14
+        "completed": 16
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T21:11:16.377186+07:00",
-      "next_run_at": "2026-06-10T21:00:00+07:00",
-      "last_run_at": "2026-06-09T21:00:46.327295+07:00",
+      "next_run_at": "2026-06-12T21:00:00+07:00",
+      "last_run_at": "2026-06-11T21:01:11.730376+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -146,15 +146,15 @@
       "schedule_display": "0 7 * * *",
       "repeat": {
         "times": null,
-        "completed": 21
+        "completed": 22
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-31T13:11:53.837144+07:00",
-      "next_run_at": "2026-06-11T07:00:00+07:00",
-      "last_run_at": "2026-06-10T13:23:49.828350+07:00",
+      "next_run_at": "2026-06-12T07:00:00+07:00",
+      "last_run_at": "2026-06-11T07:35:06.386805+07:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -170,7 +170,50 @@
         "search"
       ],
       "workdir": null
+    },
+    {
+      "id": "a2f0a12f231b",
+      "name": "Pengingat Presentasi Capstone",
+      "prompt": "Pengingat: Acara presentasi capstone Anda hari ini jam 2 siang.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "once",
+        "run_at": "2026-06-13T14:00:00+07:00",
+        "display": "once at 2026-06-13 14:00"
+      },
+      "schedule_display": "once at 2026-06-13 14:00",
+      "repeat": {
+        "times": 1,
+        "completed": 0
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-12T02:25:19.376165+07:00",
+      "next_run_at": "2026-06-13T14:00:00+07:00",
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null,
+      "profile": null
     }
   ],
-  "updated_at": "2026-06-10T15:34:59.908197+07:00"
+  "updated_at": "2026-06-12T02:25:19.376681+07:00"
 }

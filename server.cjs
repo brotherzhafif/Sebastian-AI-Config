@@ -681,7 +681,7 @@ async function handleChat(req, res) {
         // Cari index terakhir di allClientTurns yang match lastExisting
         const anchorIdx = allClientTurns.findLastIndex(
           t => t.role === lastExisting.role &&
-               t.content?.trim() === lastExisting.content?.trim()
+               t.content?.trim().slice(0, 100) === lastExisting.content?.trim().slice(0, 100)
         );
         if (anchorIdx >= 0) {
           newTurns = allClientTurns.slice(anchorIdx + 1);
@@ -708,7 +708,7 @@ async function handleChat(req, res) {
       let sessionSummary = inlineSummary || localMemory?.summary || null;
       if (inlineSummary) LOG.memory(`[${reqId}] Session summary dari inline: "${inlineSummary.slice(0, 80)}"`);
 
-      if (!inlineSummary && mergedTurns.length >= MEMORY_CONFIG.summary_threshold) {
+      if (!inlineSummary && mergedTurns.length >= MEMORY_CONFIG.summary_threshold && (!localMemory?.summary || mergedTurns.length % 5 === 0)) {
         const summaryPrompt = `Buat ringkasan singkat (maks 2 kalimat) dari percakapan berikut:\n${mergedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
         try {
           const summaryBody = { messages: [{ role: 'user', content: summaryPrompt }], _memoryInjection: '' };
