@@ -21,7 +21,7 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh;padding-bottom:40px}
         header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
         header h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px}
-        .badge{background:var(--accent);color:#fff;font-size:11px;padding:2px 8px;border-radius999px;font-weight:600}
+        .badge{background:var(--accent);color:#fff;font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600}
         .badge.live{background:var(--green);animation:pulse 2s infinite}
         @keyframes pulse{0%{opacity:0.6} 50%{opacity:1} 100%{opacity:0.6}}
         .controls{padding:16px 24px;display:flex;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--surface);align-items:center}
@@ -52,18 +52,17 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 20px;
-            /* Hilangkan overflow horizontal agar tidak akan pernah ada scrollbar */
             overflow: hidden; 
             position: relative;
         }
         .chart-bars {
             display: flex;
             align-items: flex-end;
-            gap: 4px; /* Persepat gap antar bar sedikit agar muat banyak */
+            gap: 4px;
             height: 200px;
             border-bottom: 1px solid var(--border);
-            padding-bottom: 24px; /* Beri ruang ekstra di bawah untuk label yang miring */
-            width: 100%; /* Paksa mengikuti lebar layar web */
+            padding-bottom: 24px;
+            width: 100%;
         }
         .chart-bar-container {
             flex: 1;
@@ -73,7 +72,7 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
             height: 100%;
             justify-content: flex-end;
             position: relative;
-            min-width: 0; /* Mengizinkan flex-item menyusut di bawah ukuran kontennya */
+            min-width: 0;
         }
         .chart-bar {
             width: 100%;
@@ -118,12 +117,11 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
             opacity: 1;
         }
         .chart-label-x {
-            font-size: 8px; /* Kecilkan font sedikit untuk mode padat */
+            font-size: 8px;
             color: var(--muted);
             margin-top: 8px;
             text-align: center;
             white-space: nowrap;
-            /* TRIK SAKTI: Putar label 45 derajat agar tidak saling tabrakan */
             transform: rotate(-45deg) translateX(-8px);
             transform-origin: left top;
             position: absolute;
@@ -168,13 +166,26 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         <label style="font-size:12px;color:var(--muted)">Model:</label>
         <select id="model-sel" onchange="fetchAnalytics()">
           <option value="all">Semua Model</option>
-          <optgroup label="— Gemini —">
+          <optgroup label="— Gemini (Google) —">
             <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
             <option value="gemini-3.5-flash">gemini-3.5-flash</option>
             <option value="gemini-flash-latest">gemini-flash-latest</option>
             <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
           </optgroup>
-          <optgroup label="— OpenRouter —">
+          <optgroup label="— OpenRouter (Copilot Chain) —">
+            <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron Ultra 550B</option>
+            <option value="poolside/laguna-m.1:free">Poolside Laguna M.1</option>
+            <option value="qwen/qwen3-coder:free">Qwen3 Coder (1M ctx)</option>
+            <option value="openai/gpt-oss-120b:free">GPT OSS 120B</option>
+          </optgroup>
+          <optgroup label="— OpenRouter (WhatsApp Chain) —">
+            <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B</option>
+            <option value="google/gemma-4-31b-it:free">Gemma 4 31B</option>
+            <option value="openai/gpt-oss-20b:free">GPT OSS 20B</option>
+            <option value="nvidia/nemotron-3-nano-30b-a3b:free">Nemotron Nano 30B</option>
+          </optgroup>
+          <optgroup label="— OpenRouter (Legacy) —">
             <option value="qwen/qwen3-coder-480b-free">Qwen3 Coder 480B</option>
             <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
             <option value="xiaomi/mimo-v2.5">Xiaomi MiMo-V2.5</option>
@@ -244,19 +255,32 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         const sbKey = "${supabaseKey}";
         const sbClient = supabase.createClient(sbUrl, sbKey);
 
-        // Map Palette Warna Unik per Model AI agar konsisten
-        // Ganti modelColors
+        // ── Palette warna unik per model, sinkron dengan server.cjs ──
         const modelColors = {
-          'gemini-2.5-flash':           '#6366f1',
-          'gemini-3.5-flash':           '#3b82f6',
-          'gemini-flash-latest':        '#22c55e',
-          'gemini-3-flash-preview':     '#06b6d4',
-          'qwen/qwen3-coder-480b-free': '#f59e0b',
-          'deepseek/deepseek-v4-flash': '#ef4444',
-          'xiaomi/mimo-v2.5':           '#a855f7',
-          'qwen/qwen3-next-80b-free':   '#ec4899',
-          'google/gemini-2.5-flash':    '#14b8a6',
-          'other':                      '#64748b'
+          // Gemini
+          'gemini-2.5-flash':                    '#6366f1',
+          'gemini-2.5-flash-lite':               '#818cf8',
+          'gemini-3.5-flash':                    '#3b82f6',
+          'gemini-flash-latest':                 '#22c55e',
+          'gemini-3-flash-preview':              '#06b6d4',
+          // OpenRouter — Copilot Chain
+          'nvidia/nemotron-3-ultra-550b-a55b:free': '#f59e0b',
+          'poolside/laguna-m.1:free':            '#fb923c',
+          'qwen/qwen3-coder:free':               '#facc15',
+          'openai/gpt-oss-120b:free':            '#a3e635',
+          // OpenRouter — WhatsApp Chain
+          'meta-llama/llama-3.3-70b-instruct:free': '#c084fc',
+          'google/gemma-4-31b-it:free':          '#34d399',
+          'openai/gpt-oss-20b:free':             '#2dd4bf',
+          'nvidia/nemotron-3-nano-30b-a3b:free': '#38bdf8',
+          // OpenRouter — Legacy
+          'qwen/qwen3-coder-480b-free':          '#f97316',
+          'deepseek/deepseek-v4-flash':          '#ef4444',
+          'xiaomi/mimo-v2.5':                    '#a855f7',
+          'qwen/qwen3-next-80b-free':            '#ec4899',
+          'google/gemini-2.5-flash':             '#14b8a6',
+          // Fallback
+          'other':                               '#64748b'
         };
 
         function toggleRangeInputs() {
@@ -279,7 +303,7 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
             const end = document.getElementById('end-date').value;
             const bucket = document.getElementById('bucket-sel').value;
             
-            let url = \`/dashboard/api/data?range=\${range}&model=\${model}&bucket=\${bucket}\`;
+            let url = \`/dashboard/api/data?range=\${range}&model=\${encodeURIComponent(model)}&bucket=\${bucket}\`;
             if (range === 'custom') {
                 url += \`&start=\${start}&end=\${end}\`;
             }
@@ -360,14 +384,12 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
 
             const maxVal = Math.max(...d.timeline.map(t => t.count), 1);
             
-            // Render Framework Kolom Grafik
             chartBarsEl.innerHTML = d.timeline.map((t, idx) => {
                 const hPct = t.count ? Math.max((t.count / maxVal) * 100, 4) : 0;
                 const tip = \`\${t.label} | \${t.count} Req (\${fmt(t.tokens)} Tkn)\`;
                 
                 if (viewType === 'line') {
-                    // Tampilan Node Titik untuk Line Chart
-                    const bottomPos = (hPct / 100) * 160; // sesuaikan tinggi wrapper (.chart-bars adalah 200px)
+                    const bottomPos = (hPct / 100) * 160;
                     return \`
                         <div class="chart-bar-container" id="node-box-\${idx}">
                             <div class="line-node" style="bottom:\${bottomPos}px" data-tip="\${tip}"></div>
@@ -375,8 +397,6 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
                         </div>
                     \`;
                 } else {
-                    // Tampilan Bar Chart Bawaan Favoritmu
-                    // Warnai bar berdasarkan warna model dominan atau warna aksen standar jika semua model terpilih
                     const barColor = d.selected_model !== 'all' ? (modelColors[d.selected_model] || 'var(--accent)') : 'var(--accent)';
                     return \`
                         <div class="chart-bar-container">
@@ -387,16 +407,13 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
                 }
             }).join('');
 
-            // Gambar Garis Penghubung Khusus Line Chart
             if (viewType === 'line') {
                 lineCanvas.style.display = 'block';
-                // Beri jeda sejenak agar DOM ter-render untuk menangkap ukuran koordinat asli
                 setTimeout(() => drawLineChart(d.timeline, maxVal), 50);
             } else {
                 lineCanvas.style.display = 'none';
             }
 
-            // Render Pie Chart Pangsa Model AI
             renderPieChart(d.model_share);
         }
 
@@ -419,7 +436,7 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
                 
                 const x = container.offsetLeft + (container.clientWidth / 2);
                 const hPct = t.count ? Math.max((t.count / maxVal) * 100, 4) : 0;
-                const y = canvas.height - 4 - ((hPct / 100) * 160); // Penyelarasan padding bawah grafik
+                const y = canvas.height - 4 - ((hPct / 100) * 160);
 
                 if (idx === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
@@ -453,9 +470,7 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
                 const sliceAngle = (count / total) * 2 * Math.PI;
                 const color = modelColors[model] || modelColors['other'];
 
-                // Draw Slice
                 ctx.beginPath();
-                ctx.pie = true;
                 ctx.fillStyle = color;
                 ctx.moveTo(canvas.width/2, canvas.height/2);
                 ctx.arc(canvas.width/2, canvas.height/2, Math.min(canvas.width, canvas.height)/2 - 10, startAngle, startAngle + sliceAngle);
@@ -464,7 +479,6 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
 
                 startAngle += sliceAngle;
 
-                // Append Legend
                 const pct = Math.round((count / total) * 100);
                 legendEl.innerHTML += \`
                     <div class="legend-item">
@@ -486,7 +500,6 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
             if(document.getElementById('view-sel').value === 'line') fetchAnalytics();
         });
 
-        // Set default filter date
         const todayStr = new Date().toISOString().split('T')[0];
         document.getElementById('start-date').value = todayStr;
         document.getElementById('end-date').value = todayStr;
@@ -527,8 +540,7 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
       let bucketType = bucket || 'auto';
       let fallbackTriggered = false;
 
-      // ── MENGHITUNG RENTANG FILTER TANGGAL (WIB COMPATIBLE) ──
-      const tzOffset = 7 * 60 * 60 * 1000; // Offset +7 Jam WIB
+      const tzOffset = 7 * 60 * 60 * 1000;
       const localNow = new Date(Date.now() + tzOffset);
       const localTodayStr = localNow.toISOString().split('T')[0];
 
@@ -560,17 +572,14 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
       const { data, error } = await query;
       if (error) throw error;
 
-      // ── AUTO-FALLBACK ENGINE: Hitung sebaran hari unik data ──
       if (bucket === 'auto' && (range === 'week' || range === 'month' || range === 'custom')) {
         const uniqueDays = new Set(data.map(item => item.created_at.split(/[\sT]/)[0]));
-        // Jika data sepi (kurang dari 3 hari terisi), paksa pecah per jam biar grafik berbobot (> 20 kolom)
         if (uniqueDays.size < 3 && data.length > 0) {
           bucketType = 'hour_expanded';
           fallbackTriggered = true;
         }
       }
 
-      // Hitung agregat Top Card Summary
       const summary = {
         total_requests: data.length,
         success_requests: data.filter(r => r.success).length,
@@ -579,31 +588,37 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
         avg_latency: data.length ? (data.reduce((acc, r) => acc + (r.latency_ms || 0), 0) / data.length) : 0
       };
 
+      // ── KNOWN_MODELS sinkron dengan server.cjs ──
       const KNOWN_MODELS = new Set([
-        'gemini-2.5-flash','gemini-3.5-flash','gemini-flash-latest','gemini-3-flash-preview',
-        'qwen/qwen3-coder-480b-free','deepseek/deepseek-v4-flash',
-        'xiaomi/mimo-v2.5','qwen/qwen3-next-80b-free','google/gemini-2.5-flash'
+        // Gemini
+        'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.5-flash',
+        'gemini-flash-latest', 'gemini-3-flash-preview',
+        // OpenRouter Copilot Chain
+        'nvidia/nemotron-3-ultra-550b-a55b:free', 'poolside/laguna-m.1:free',
+        'qwen/qwen3-coder:free', 'openai/gpt-oss-120b:free',
+        // OpenRouter WhatsApp Chain
+        'meta-llama/llama-3.3-70b-instruct:free', 'google/gemma-4-31b-it:free',
+        'openai/gpt-oss-20b:free', 'nvidia/nemotron-3-nano-30b-a3b:free',
+        // OpenRouter Legacy
+        'qwen/qwen3-coder-480b-free', 'deepseek/deepseek-v4-flash',
+        'xiaomi/mimo-v2.5', 'qwen/qwen3-next-80b-free', 'google/gemini-2.5-flash'
       ]);
+
       const modelShare = {};
       data.forEach(r => {
         const key = KNOWN_MODELS.has(r.model) ? r.model : 'other';
         modelShare[key] = (modelShare[key] || 0) + 1;
       });
 
-      // ── PROSES PENGELOMPOKKAN GRAFIK (DYNAMIC BUCKETING ENGINE) ──
       const timelineMap = {};
 
-      // ── UPDATE DI BAGIAN BUCKET TYPE HOUR ──
       if (bucketType === 'hour') {
-        // Ambil rentang tanggal dari data terkecil dan terbesar agar mencakup pergantian hari
         const dates = data.map(item => item.created_at.split(/[\sT]/)[0]).sort();
         const baseDates = dates.length > 0 ? [...new Set(dates)] : [localTodayStr];
 
-        // Generate template jam penuh (00:00 - 23:00) yang mengunci tanggalnya agar sort tidak tertukar
         baseDates.forEach(dStr => {
           for (let i = 0; i < 24; i++) {
             const hr = `${String(i).padStart(2, '0')}:00`;
-            // Gunakan key kombinasi "YYYY-MM-DD HH:00" agar urutan sort mutlak kronologis
             timelineMap[`${dStr} ${hr}`] = { count: 0, tokens: 0 };
           }
         });
@@ -615,7 +630,6 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
           if (timePart) {
             const hour = timePart.split(':')[0];
             const labelKey = `${dStr} ${hour}:00`;
-            
             if (timelineMap[labelKey]) {
               timelineMap[labelKey].count++;
               timelineMap[labelKey].tokens += (item.input_tokens || 0) + (item.output_tokens || 0);
@@ -624,22 +638,19 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
         });
       }
       else if (bucketType === 'hour_expanded') {
-        // 1. Cari tanggal minimal dan maksimal dari data yang didapat
         const dates = data.map(item => item.created_at.split(/[\sT]/)[0]).sort();
         
         if (dates.length > 0) {
           const startDate = new Date(dates[0]);
           const endDate = new Date(dates[dates.length - 1]);
           
-          // Jaga-jaga jika datanya di hari yang sama, kita paksa minimal generate 2 hari agar rentang jamnya kelihatan trennya
           if (dates[0] === dates[dates.length - 1]) {
             endDate.setDate(endDate.getDate() + 1);
           }
 
-          // 2. Generate template jam penuh (00:00 s/d 23:00) untuk setiap hari di dalam rentang tersebut
           let cursor = new Date(startDate);
           while (cursor <= endDate) {
-            const dateStr = cursor.toISOString().split('T')[0].substring(5); // Format: MM-DD
+            const dateStr = cursor.toISOString().split('T')[0].substring(5);
             for (let h = 0; h < 24; h++) {
               const hourStr = `${String(h).padStart(2, '0')}:00`;
               timelineMap[`${dateStr} ${hourStr}`] = { count: 0, tokens: 0 };
@@ -648,44 +659,30 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
           }
         }
 
-        // 3. Masukkan data asli dari database ke dalam template yang sudah padat
         data.forEach(item => {
           const parts = item.created_at.split(/[\sT]/);
-          const datePart = parts[0].substring(5); // MM-DD
+          const datePart = parts[0].substring(5);
           const hourPart = parts[1] ? parts[1].split(':')[0] + ':00' : '00:00';
           const label = `${datePart} ${hourPart}`;
-          
-          // Jika karena suatu hal kursor template terlewat, buat cadangannya secara dinamis
           if (!timelineMap[label]) timelineMap[label] = { count: 0, tokens: 0 };
-          
           timelineMap[label].count++;
           timelineMap[label].tokens += (item.input_tokens || 0) + (item.output_tokens || 0);
         });
 
-        // 4. FILTER: Biar grafik gak kepanjangan berhari-hari kosong, buang zero-buckets di awal/akhir yang berlebihan
-        // 4. IMPLEMENTASI FILTER: Buang zero-buckets di awal sebelum data pertama muncul
         const sortedKeys = Object.keys(timelineMap).sort();
-        
-        // Cari indeks pertama yang benar-benar ada request-nya
         let firstActiveIdx = sortedKeys.findIndex(key => timelineMap[key].count > 0);
-        // Cari indeks terakhir yang benar-back ada request-nya
         let lastActiveIdx = sortedKeys.length - 1 - [...sortedKeys].reverse().findIndex(key => timelineMap[key].count > 0);
 
-        // Beri sedikit "napas" margin (misal tampilkan 3 jam sebelum dan 3 jam setelah data aktif)
         const startTrim = Math.max(0, firstActiveIdx - 3);
         const endTrim = Math.min(sortedKeys.length, lastActiveIdx + 4);
-
-        // Potong keys yang akan dimasukkan ke timeline asli
         const trimmedKeys = sortedKeys.slice(startTrim, endTrim);
         
-        // Bentuk array timeline hanya berdasarkan keys yang sudah dipangkas
         const timeline = trimmedKeys.map(key => ({
           label: key,
           count: timelineMap[key].count,
           tokens: timelineMap[key].tokens
         }));
 
-        // Return langsung dari block ini agar tidak ditimpa oleh fungsi global .map() di bawahnya
         const currentServerTime = new Date().toLocaleString('id-ID', {
           timeZone: 'Asia/Jakarta',
           dateStyle: 'medium',
@@ -693,19 +690,14 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
         });
 
         return res.json({ 
-          summary, 
-          timeline, 
-          model_share: modelShare,
-          bucket_type: bucketType,
-          selected_model: model || 'all',
-          fallback_triggered: fallbackTriggered,
-          server_time: currentServerTime
+          summary, timeline, model_share: modelShare,
+          bucket_type: bucketType, selected_model: model || 'all',
+          fallback_triggered: fallbackTriggered, server_time: currentServerTime
         });
       }
       else if (bucketType === 'day') {
-        // Mode Harian Bersih
         data.forEach(item => {
-          const label = item.created_at.split(/[\sT]/)[0]; // YYYY-MM-DD
+          const label = item.created_at.split(/[\sT]/)[0];
           if (!timelineMap[label]) timelineMap[label] = { count: 0, tokens: 0 };
           timelineMap[label].count++;
           timelineMap[label].tokens += (item.input_tokens || 0) + (item.output_tokens || 0);
@@ -713,15 +705,14 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
       } 
       else if (bucketType === 'month_year') {
         data.forEach(item => {
-          const parts = item.created_at.split(/[\sT]/)[0].split('-'); // [YYYY, MM, DD]
-          const label = `${parts[0]}-${parts[1]}`; // YYYY-MM
+          const parts = item.created_at.split(/[\sT]/)[0].split('-');
+          const label = `${parts[0]}-${parts[1]}`;
           if (!timelineMap[label]) timelineMap[label] = { count: 0, tokens: 0 };
           timelineMap[label].count++;
           timelineMap[label].tokens += (item.input_tokens || 0) + (item.output_tokens || 0);
         });
       }
 
-      // Pastikan data berurutan secara kronologis maju
       const timeline = Object.keys(timelineMap).sort().map(key => ({
         label: key,
         count: timelineMap[key].count,
@@ -735,13 +726,9 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
       });
 
       return res.json({ 
-        summary, 
-        timeline, 
-        model_share: modelShare,
-        bucket_type: bucketType,
-        selected_model: model || 'all',
-        fallback_triggered: fallbackTriggered,
-        server_time: currentServerTime
+        summary, timeline, model_share: modelShare,
+        bucket_type: bucketType, selected_model: model || 'all',
+        fallback_triggered: fallbackTriggered, server_time: currentServerTime
       });
 
     } catch (err) {
