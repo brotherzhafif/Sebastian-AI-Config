@@ -153,7 +153,7 @@
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-31T13:11:53.837144+07:00",
-      "next_run_at": "2026-06-12T07:00:00+07:00",
+      "next_run_at": "2026-06-13T07:00:00+07:00",
       "last_run_at": "2026-06-11T07:35:06.386805+07:00",
       "last_status": "ok",
       "last_error": null,
@@ -214,5 +214,5 @@
       "workdir": null
     }
   ],
-  "updated_at": "2026-06-12T03:50:55.732244+07:00"
+  "updated_at": "2026-06-12T07:00:14.184691+07:00"
 }

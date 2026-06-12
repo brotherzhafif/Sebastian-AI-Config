@@ -8,25 +8,25 @@ const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 const LOG = {
-  boot:    (...a) => console.log (`[🚀 BOOT    ]`, ...a),
-  persona: (...a) => console.log (`[🧠 PERSONA ]`, ...a),
-  token:   (...a) => console.log (`[🔑 TOKEN   ]`, ...a),
-  req:     (...a) => console.log (`[📥 REQUEST ]`, ...a),
-  session: (...a) => console.log (`[📌 SESSION ]`, ...a),
-  think:   (...a) => console.log (`[💭 THINK   ]`, ...a),
-  race:    (...a) => console.log (`[🏁 RACE    ]`, ...a),
-  win:     (...a) => console.log (`[🏆 WIN     ]`, ...a),
-  fallback:(...a) => console.log (`[🔄 FALLBACK]`, ...a),
-  tool:    (...a) => console.log (`[🔧 TOOL    ]`, ...a),
-  out:     (...a) => console.log (`[📤 OUTPUT  ]`, ...a),
-  trim:    (...a) => console.log (`[✂️  TRIM    ]`, ...a),
-  db:      (...a) => console.log (`[🗄️  DB      ]`, ...a),
-  queue:   (...a) => console.log (`[⏳ QUEUE   ]`, ...a),
-  memory:  (...a) => console.log (`[💾 MEMORY  ]`, ...a),
-  warn:    (...a) => console.warn (`[⚠️  WARN    ]`, ...a),
-  err:     (...a) => console.error(`[🚨 ERROR   ]`, ...a),
-  quota:   (...a) => console.warn (`[🚫 QUOTA   ]`, ...a),
-  exhaust: (...a) => console.error(`[💀 EXHAUST ]`, ...a),
+  boot:     (...a) => console.log (`[🚀 BOOT    ]`, ...a),
+  persona:  (...a) => console.log (`[🧠 PERSONA ]`, ...a),
+  token:    (...a) => console.log (`[🔑 TOKEN   ]`, ...a),
+  req:      (...a) => console.log (`[📥 REQUEST ]`, ...a),
+  session:  (...a) => console.log (`[📌 SESSION ]`, ...a),
+  think:    (...a) => console.log (`[💭 THINK   ]`, ...a),
+  race:     (...a) => console.log (`[🏁 RACE    ]`, ...a),
+  win:      (...a) => console.log (`[🏆 WIN     ]`, ...a),
+  fallback: (...a) => console.log (`[🔄 FALLBACK]`, ...a),
+  tool:     (...a) => console.log (`[🔧 TOOL    ]`, ...a),
+  out:      (...a) => console.log (`[📤 OUTPUT  ]`, ...a),
+  trim:     (...a) => console.log (`[✂️  TRIM    ]`, ...a),
+  db:       (...a) => console.log (`[🗄️  DB      ]`, ...a),
+  queue:    (...a) => console.log (`[⏳ QUEUE   ]`, ...a),
+  memory:   (...a) => console.log (`[💾 MEMORY  ]`, ...a),
+  warn:     (...a) => console.warn (`[⚠️  WARN    ]`, ...a),
+  err:      (...a) => console.error(`[🚨 ERROR   ]`, ...a),
+  quota:    (...a) => console.warn (`[🚫 QUOTA   ]`, ...a),
+  exhaust:  (...a) => console.error(`[💀 EXHAUST ]`, ...a),
 };
 
 const PORT = process.env.PORT || 9089;
@@ -54,6 +54,15 @@ const MODEL_FALLBACK_CHAIN = [
   'gemini-3-flash-preview',
 ];
 
+// Fallback Chain OpenRouter Premium & Free Terupdate (Juni 2026)
+const OPENROUTER_FALLBACK_CHAIN = [
+  'qwen/qwen3-coder-480b-free',         // Qwen3 Coder 480B — GRATIS, 1M Context, Spesialis Coding Utama
+  'deepseek/deepseek-v4-flash',         // DeepSeek V4 Flash — Sangat Cerdas, 1M Context, Super Murah
+  'xiaomi/mimo-v2.5',                   // Xiaomi MiMo-V2.5 — 3.34T MoE Raksasa, 1M Context, Akurasi Tinggi
+  'qwen/qwen3-next-80b-free',           // Qwen3 Next 80B Instruct — Backup Gratisan Kedua
+  'google/gemini-2.5-flash'             // Benteng terakhir cadangan sistem
+];
+
 const MODEL_ALIASES = {
   'gemini-3-flash-live':  'gemini-flash-latest',
   'gemini-3.5-pro':       'gemini-2.5-flash',
@@ -66,6 +75,8 @@ const MEMORY_CONFIG = {
   trim_chars: 150,
   injection_turns: 4,
   summary_threshold: 15,
+  purgeDays: 30,          // Otomatis hapus sesi lama >30 hari
+  compressThreshold: 1000 // Kompres ke base64 jika pesan >1000 karakter
 };
 
 const SEMANTIC_TRIGGERS = /\b(tadi|kemarin|sebelumnya|waktu itu|dulu|minggu lalu|bulan lalu|pernah|ingat|inget|lupa|apa yang|kapan kita|kita pernah|terakhir kali)\b/i;
@@ -119,6 +130,19 @@ function compressText(text) {
   return out.trim();
 }
 
+function decompressText(text) {
+  if (!text || typeof text !== 'string') return text;
+  if (text.startsWith('b64:')) {
+    try {
+      return Buffer.from(text.slice(4), 'base64').toString('utf8');
+    } catch (e) {
+      LOG.warn(`Gagal decompress text base64: ${e.message}`);
+      return text;
+    }
+  }
+  return text;
+}
+
 function compressMessages(messages) {
   return messages.map(msg => {
     if (msg.role === 'user' && typeof msg.content === 'string') {
@@ -165,6 +189,8 @@ if (TOKEN_POOL.length === 0) { LOG.err('Tidak ada token API ditemukan di .env!')
 LOG.token(`${TOKEN_POOL.length} token terdeteksi: [${TOKEN_POOL.map((_, i) => `tok#${i}`).join(', ')}]`);
 
 let globalIndex = 0;
+const SERVER_START_TIME = Date.now();
+let healthStats = { totalRequests: 0, successfulRequests: 0, failedRequests: 0, totalTokens: 0, startTime: new Date(), lastUpdated: new Date() };
 
 // ============================================================
 // MULTI-SOURCE MEMORY
@@ -177,24 +203,45 @@ async function loadLocalMemory(sessionKey) {
     .maybeSingle();
   if (error || !data) return null;
 
-  // Filter tool-related turns dari stored memory
   if (data.turns) {
-    data.turns = data.turns.filter(t => t.role !== 'tool' && t.role !== 'function');
+    let filtered = data.turns.filter(t => t.role !== 'tool' && t.role !== 'function');
+    data.turns = filtered.map(t => ({
+      ...t,
+      content: decompressText(t.content)
+    }));
   }
 
   return data;
 }
 
 function saveLocalMemory(sessionKey, turns, summary) {
-  const trimmedTurns = turns;
+  const processedTurns = turns.map(t => {
+    if (t.content && t.content.length > MEMORY_CONFIG.compressThreshold) {
+      const b64Str = Buffer.from(t.content, 'utf8').toString('base64');
+      return { ...t, content: `b64:${b64Str}`, compressed: true };
+    }
+    return t;
+  });
+
   supabase.from('hermes_memory')
     .upsert(
-      { session_key: sessionKey, summary: summary || null, turns: trimmedTurns, updated_at: new Date(), last_active: new Date() },
+      { session_key: sessionKey, summary: summary || null, turns: processedTurns, updated_at: new Date(), last_active: new Date() },
       { onConflict: 'session_key' }
     )
     .then(({ error }) => {
       if (error) LOG.err(`Gagal save memory: ${error.message}`);
-      else LOG.memory(`Memory saved → session="${sessionKey.slice(0, 20)}" turns=${trimmedTurns.length}`);
+      else LOG.memory(`Memory saved → session="${sessionKey.slice(0, 20)}" turns=${processedTurns.length}`);
+    });
+
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - MEMORY_CONFIG.purgeDays);
+  
+  supabase.from('hermes_memory')
+    .delete()
+    .lt('last_active', cutoffDate.toISOString())
+    .then(({ error, count }) => {
+      if (error) LOG.warn(`Auto-purge gagal: ${error.message}`);
+      else if (count > 0) LOG.memory(`[Auto-Purge] Berhasil menghapus ${count} sesi usang (>30 hari).`);
     });
 }
 
@@ -368,7 +415,6 @@ function callGemini(body, apiKey, tokenIndex, model, reqId, timeoutMs) {
             return reject({ type: 'API_ERROR', message, index: tokenIndex });
           }
 
-          // VALIDASI STRUKTUR KONTEN NYATA SEBELUM MENCATAT LOG SUKSES
           const hasContent = json.candidates?.[0]?.content?.parts?.length > 0;
           if (!hasContent) {
             LOG.warn(`[${reqId}] tok#${tokenIndex} Mengembalikan JSON valid tapi tanpa konten/kandidat text.`);
@@ -381,7 +427,6 @@ function callGemini(body, apiKey, tokenIndex, model, reqId, timeoutMs) {
             return reject({ type: 'BLOCKED', message: `finishReason: ${finishReason}`, index: tokenIndex });
           }
 
-          // ✅ Tambah ini — cek apakah ada teks atau functionCall yang nyata
           const parts = json.candidates[0].content.parts;
           const hasRealContent = parts.some(p => (p.text && p.text.trim().length > 0) || p.functionCall);
           if (!hasRealContent) {
@@ -394,9 +439,8 @@ function callGemini(body, apiKey, tokenIndex, model, reqId, timeoutMs) {
           const inTok = usage.promptTokenCount || 0;
           const outTok = usage.candidatesTokenCount || 0;
           
-          LOG.win(`[${reqId}] tok#${tokenIndex} ✓ ${ms}ms | in=${inTok} out=${outTok} tokens`);
+          LOG.win(`[${reqId}] ✓ ${ms}ms | in=${inTok} out=${outTok} tokens`);
           
-          // Catat ke Supabase hanya jika benar-benar lolos validasi konten riyal!
           recordRequestRemote({ model, inputTokens: inTok, outputTokens: outTok, tokenIdx: tokenIndex, success: true, ms });
           resolve(json);
         } catch (e) {
@@ -431,20 +475,16 @@ async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
       } catch (err) {
         LOG.warn(`[${reqId}] tok#${idx} failed: ${err?.type} → next`);
         
-        // thought_signature = model incompatible, skip langsung ke model lain
         if (/thought_signature/i.test(err?.message || '')) {
           LOG.fallback(`[${reqId}] thought_signature → skip model "${model}"`);
           return null;
         }
         
-        // model invalid = skip langsung
         if (err?.type === 'API_ERROR' && /not found|invalid|does not exist|unsupported/i.test(err?.message || '')) {
           LOG.fallback(`[${reqId}] Model "${model}" tidak valid → skip`);
           return null;
         }
         
-        // quota/rate limit = coba token berikutnya
-        // timeout/network = coba token berikutnya
         continue;
       }
     }
@@ -458,7 +498,142 @@ async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
   return null;
 }
 
-async function callWithFallback(body, requestedModel, startIndex, reqId, timeoutMs) {
+// ============================================================
+// OPENROUTER INTEGRATION MODULE
+// ============================================================
+function toOpenRouterPayload(body, model, memoryInjection) {
+  const rawMessages = body.messages || [];
+  const systemMessages = rawMessages.filter(m => m.role === 'system');
+  let chatMessages = rawMessages.filter(m => m.role !== 'system');
+  const messages = compressMessages([...systemMessages, ...chatMessages]);
+  const finalMessages = messages.map(m => {
+    if (m.role === 'system') {
+      return { ...m, content: `${PERSONA}\n\n---\n\n${m.content || ''}${memoryInjection || ''}` };
+    }
+    return m;
+  });
+  if (!messages.some(m => m.role === 'system') && PERSONA) {
+    finalMessages.unshift({ role: 'system', content: `${PERSONA}${memoryInjection || ''}` });
+  }
+
+  const payload = {
+    model: model,
+    messages: finalMessages,
+    stream: false
+  };
+
+  if (body.max_tokens) {
+    payload.max_tokens = Math.min(body.max_tokens, 4096);
+  }
+
+  if (body.tools && body.tools.length > 0) {
+    LOG.tool(`[OpenRouter] Meneruskan ${body.tools.length} tools asli ke model: ${model}`);
+    payload.tools = body.tools;
+  }
+
+  return JSON.stringify(payload);
+}
+
+function callOpenRouter(body, model, reqId, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return reject({ type: 'CONFIG_ERROR', message: 'OPENROUTER_API_KEY kosong' });
+    const payload = toOpenRouterPayload(body, model, body._memoryInjection);
+    let done = false;
+    LOG.race(`[${reqId}] Firing OpenRouter → ${model} (timeout=${timeoutMs}ms)`);
+    const options = {
+      hostname: 'openrouter.ai',
+      path: '/api/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://github.com/hermes-bridge',
+        'X-Title': 'Hermes Copilot Engine',
+        'Content-Length': Buffer.byteLength(payload)
+      },
+    };
+    const req = https.request(options, (res) => {
+      let raw = '';
+      res.on('data', chunk => { raw += chunk; });
+      res.on('end', () => {
+        if (done) return;
+        try {
+          const json = JSON.parse(raw);
+          if (json.error) {
+            LOG.warn(`[${reqId}] OpenRouter API error: ${json.error.message}`);
+            return reject({ type: 'API_ERROR', message: json.error.message });
+          }
+          const msg = json.choices?.[0]?.message;
+          if (!msg) return reject({ type: 'EMPTY_CONTENT', message: 'No choices returned' });
+          const ms = Date.now() - t0;
+          const usage = json.usage || {};
+          LOG.win(`[${reqId}] OpenRouter ✓ ${ms}ms | in=${usage.prompt_tokens || 0} out=${usage.completion_tokens || 0} tokens`);
+          recordRequestRemote({ model, inputTokens: usage.prompt_tokens || 0, outputTokens: usage.completion_tokens || 0, tokenIdx: 99, success: true, ms });
+          
+          const pseudoGemini = {
+            candidates: [{
+              content: { parts: [] },
+              finishReason: msg.tool_calls?.length ? 'STOP' : 'STOP' 
+            }],
+            usageMetadata: {
+              promptTokenCount: usage.prompt_tokens || 0,
+              candidatesTokenCount: usage.completion_tokens || 0
+            }
+          };
+
+          if (msg.tool_calls && msg.tool_calls.length > 0) {
+            LOG.tool(`[${reqId}] OpenRouter mendeteksi pemicu tools eksekusi berkas: [${msg.tool_calls.map(t => t.function?.name).join(', ')}]`);
+            msg.tool_calls.forEach(tc => {
+              let parsedArgs = {};
+              try {
+                parsedArgs = typeof tc.function.arguments === 'string' 
+                  ? JSON.parse(tc.function.arguments) 
+                  : tc.function.arguments;
+              } catch (e) {
+                parsedArgs = { raw: tc.function.arguments };
+              }
+
+              pseudoGemini.candidates[0].content.parts.push({
+                functionCall: { 
+                  name: tc.function.name, 
+                  args: parsedArgs 
+                }
+              });
+            });
+          } else if (msg.content) {
+            pseudoGemini.candidates[0].content.parts.push({ text: msg.content });
+          }
+
+          resolve(pseudoGemini);
+        } catch (e) {
+          LOG.err(`[${reqId}] OpenRouter parse error: ${e.message}`);
+          reject({ type: 'PARSE_ERROR', message: e.message });
+        }
+      });
+    });
+    req.setTimeout(timeoutMs, () => { done = true; req.destroy(); LOG.warn(`[${reqId}] OpenRouter TIMEOUT`); reject({ type: 'TIMEOUT' }); });
+    req.on('error', e => { if (!done) { LOG.err(`[${reqId}] OpenRouter network: ${e.message}`); reject({ type: 'NETWORK_ERROR', message: e.message }); } });
+    req.write(payload); req.end();
+  });
+}
+
+async function callWithFallback(body, requestedModel, startIndex, reqId, timeoutMs, sessionKey) {
+  if (sessionKey === 'copilot') {
+    LOG.think(`[${reqId}] OpenRouter Engine matching active for session type: copilot`);
+    for (let i = 0; i < OPENROUTER_FALLBACK_CHAIN.length; i++) {
+      const model = OPENROUTER_FALLBACK_CHAIN[i];
+      LOG.fallback(`[${reqId}] OpenRouter Trigger ${i + 1}/${OPENROUTER_FALLBACK_CHAIN.length}: "${model}"`);
+      try {
+        const result = await callOpenRouter(body, model, reqId, timeoutMs);
+        if (result) return { res: result, idx: startIndex, model: model }; 
+      } catch (err) {
+        LOG.warn(`[${reqId}] OpenRouter model "${model}" failed → swapping engine`);
+      }
+    }
+  }
+
   const resolvedModel = resolveModel(requestedModel);
   let modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
 
@@ -568,8 +743,11 @@ async function handleChat(req, res) {
   const maxTokens = body.max_tokens || 9999;
   const chunkId = `chatcmpl-${Date.now()}`;
   const reqId = chunkId.slice(-8);
+  
+  body._t0 = Date.now();
 
   LOG.req(`[${reqId}] POST /chat | model=${model} msgs=${messages.length} stream=${stream} maxTok=${maxTokens}`);
+  healthStats.totalRequests++;
 
   if (!messages.length) {
     LOG.warn(`[${reqId}] Request kosong → ping`);
@@ -606,8 +784,8 @@ async function handleChat(req, res) {
                   /cron job.*failed/i.test(firstUserMsg);
   const sessionKey = isCronjob
     ? `cron_${hashKey(firstUserMsg.slice(0, 100))}`
+    : /expert ai programming|vs code|github copilot|cline|roo clinic/i.test(sysContent) ? 'copilot' // Taruh Copilot paling atas!
     : /asisten pribadi|sebastian/i.test(sysContent) ? 'sebastian'
-    : /expert ai programming|vs code/i.test(sysContent) ? 'copilot'
     : hashKey(sysContent.slice(0, 200));
   const ERROR_MSG = 'Tuan Zhafif, Sebastian Sedang Istirahat Karena Kelelahan';
 
@@ -640,7 +818,7 @@ async function handleChat(req, res) {
   }
 
   try {
-    const { res: geminiRes, idx: winnerIdx, model: usedModel } = await callWithFallback(body, model, startIndex, reqId, timeoutMs);
+    const { res: geminiRes, idx: winnerIdx, model: usedModel } = await callWithFallback(body, model, startIndex, reqId, timeoutMs, sessionKey);
     if (heartbeat) clearInterval(heartbeat);
     setSessionIndexRemote(sessionKey, winnerIdx);
     globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
@@ -731,17 +909,20 @@ async function handleChat(req, res) {
     }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
+    healthStats.successfulRequests++;
     return buildOpenAIResponse(geminiRes, chunkId, usedModel, stream, res, reqId);
 
   } catch (err) {
     if (heartbeat) clearInterval(heartbeat);
-
+    healthStats.failedRequests++;
+    
     if (err?.code === 'ERR_HTTP_HEADERS_SENT' || res.headersSent) {
-      LOG.warn(`[${reqId}] Double-response (headers sent), ignoring`);
-      return;
+        LOG.warn(`[${reqId}] Double-response (headers sent), ignoring`);
+        return;
     }
-
-    LOG.exhaust(`[${reqId}] ❌ POOL_EXHAUSTED: ${err.message}`);
+    
+    const tookMs = Date.now() - (body._t0 || 0);
+    LOG.err(`[${reqId}] ERR /chat | model=${model} stream=${stream} took=${tookMs}ms err="${err.message}"`);
     setSessionIndexRemote(sessionKey, (startIndex + 1) % TOKEN_POOL.length);
     recordRequestRemote({ model, inputTokens: 0, outputTokens: 0, tokenIdx: -1, success: false, ms: 0 });
     return sendError(chunkId, model, ERROR_MSG, stream, res, reqId);
@@ -753,9 +934,40 @@ app.use(express.json({ limit: '50mb' }));
 app.use((req, res, next) => { const key = `${req.method}:${req.path}`; if (!LOG_SUPPRESS.has(key)) LOG.req(`→ [${req.method}] ${req.url} | IP: ${req.ip}`); next(); });
 
 const initDashboardRouter = require('./dashboard.cjs');
-app.use('/dashboard', initDashboardRouter(supabase));
+app.use('/dashboard', initDashboardRouter(supabase, process.env.SUPABASE_URL, process.env.SUPABASE_KEY));
 
-const MODELS_LIST = { object: 'list', data: MODEL_FALLBACK_CHAIN.map(id => ({ id, object: 'model', created: 1700000000, owned_by: 'google' })) };
+const MODELS_LIST = { object: 'list', data: [...MODEL_FALLBACK_CHAIN, ...OPENROUTER_FALLBACK_CHAIN].map(id => ({ id, object: 'model', created: 1700000000, owned_by: 'google' })) };
+
+// ============================================================
+// HEALTH CHECK ENDPOINT
+// ============================================================
+app.get('/health', (req, res) => {
+  healthStats.lastUpdated = new Date();
+  const uptime = (Date.now() - healthStats.startTime.getTime()) / 1000;
+  const response = {
+    status: 'OK',
+    uptime: `${uptime.toFixed(2)}s`,
+    totalRequests: healthStats.totalRequests,
+    successfulRequests: healthStats.successfulRequests,
+    failedRequests: healthStats.failedRequests,
+    successRate: healthStats.totalRequests === 0 ? 0 : (healthStats.successfulRequests / healthStats.totalRequests * 100).toFixed(2),
+    totalTokens: healthStats.totalTokens,
+    memoryUsage: process.memoryUsage(),
+    config: {
+      MAX_TURNS: MEMORY_CONFIG.max_turns,
+      TRIM_CHARS: MEMORY_CONFIG.trim_chars,
+      INJECTION_TURNS: MEMORY_CONFIG.injection_turns,
+      SUMMARY_THRESHOLD: MEMORY_CONFIG.summary_threshold,
+      PURGE_DAYS: MEMORY_CONFIG.purgeDays,
+      COMPRESS_THRESHOLD: MEMORY_CONFIG.compressThreshold,
+      OPENAI_MODEL: process.env.OPENAI_MODEL || 'default',
+      GEMINI_MODEL: process.env.GEMINI_MODEL || 'default',
+      FALLBACK_MODELS: MODEL_FALLBACK_CHAIN.join(','),
+      LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+    }
+  };
+  res.status(200).json(response);
+});
 
 app.post('/v1/chat/completions', handleChat);
 app.post('/chat/completions', handleChat);

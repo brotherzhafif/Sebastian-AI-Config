@@ -168,10 +168,19 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         <label style="font-size:12px;color:var(--muted)">Model:</label>
         <select id="model-sel" onchange="fetchAnalytics()">
           <option value="all">Semua Model</option>
-          <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-          <option value="gemini-3.5-flash">gemini-3.5-flash</option>
-          <option value="gemini-flash-latest">gemini-flash-latest</option>
-          <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+          <optgroup label="— Gemini —">
+            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+            <option value="gemini-flash-latest">gemini-flash-latest</option>
+            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+          </optgroup>
+          <optgroup label="— OpenRouter —">
+            <option value="qwen/qwen3-coder-480b-free">Qwen3 Coder 480B</option>
+            <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
+            <option value="xiaomi/mimo-v2.5">Xiaomi MiMo-V2.5</option>
+            <option value="qwen/qwen3-next-80b-free">Qwen3 Next 80B</option>
+            <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (OR)</option>
+          </optgroup>
         </select>
 
         <label style="font-size:12px;color:var(--muted)">Pecah:</label>
@@ -236,12 +245,18 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         const sbClient = supabase.createClient(sbUrl, sbKey);
 
         // Map Palette Warna Unik per Model AI agar konsisten
+        // Ganti modelColors
         const modelColors = {
-          'gemini-2.5-flash': '#6366f1',       // Indigo
-          'gemini-3.5-flash': '#3b82f6',       // Blue
-          'gemini-flash-latest': '#22c55e',    // Green
-          'gemini-3-flash-preview': '#06b6d4', // Cyan
-          'other': '#64748b'                   // Slate Gray
+          'gemini-2.5-flash':           '#6366f1',
+          'gemini-3.5-flash':           '#3b82f6',
+          'gemini-flash-latest':        '#22c55e',
+          'gemini-3-flash-preview':     '#06b6d4',
+          'qwen/qwen3-coder-480b-free': '#f59e0b',
+          'deepseek/deepseek-v4-flash': '#ef4444',
+          'xiaomi/mimo-v2.5':           '#a855f7',
+          'qwen/qwen3-next-80b-free':   '#ec4899',
+          'google/gemini-2.5-flash':    '#14b8a6',
+          'other':                      '#64748b'
         };
 
         function toggleRangeInputs() {
@@ -483,11 +498,11 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
 </html>`;
 }
 
-function initDashboardRouter(supabase) {
+function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
   
   router.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html');
-    return res.send(getDashboardHTML(supabase.supabaseUrl, supabase.supabaseKey));
+    return res.send(getDashboardHTML(supabaseUrl, supabaseKey));
   });
 
   router.get('/api/memory', async (req, res) => {
@@ -564,18 +579,15 @@ function initDashboardRouter(supabase) {
         avg_latency: data.length ? (data.reduce((acc, r) => acc + (r.latency_ms || 0), 0) / data.length) : 0
       };
 
-      // Hitung Sebaran Pangsa Pasar Model AI (Sesuai MODEL_FALLBACK_CHAIN)
-      const modelShare = {
-        'gemini-2.5-flash': 0,
-        'gemini-3.5-flash': 0,
-        'gemini-flash-latest': 0,
-        'gemini-3-flash-preview': 0,
-        'other': 0
-      };
-
+      const KNOWN_MODELS = new Set([
+        'gemini-2.5-flash','gemini-3.5-flash','gemini-flash-latest','gemini-3-flash-preview',
+        'qwen/qwen3-coder-480b-free','deepseek/deepseek-v4-flash',
+        'xiaomi/mimo-v2.5','qwen/qwen3-next-80b-free','google/gemini-2.5-flash'
+      ]);
+      const modelShare = {};
       data.forEach(r => {
-        if (modelShare[r.model] !== undefined) modelShare[r.model]++;
-        else modelShare['other']++;
+        const key = KNOWN_MODELS.has(r.model) ? r.model : 'other';
+        modelShare[key] = (modelShare[key] || 0) + 1;
       });
 
       // ── PROSES PENGELOMPOKKAN GRAFIK (DYNAMIC BUCKETING ENGINE) ──
