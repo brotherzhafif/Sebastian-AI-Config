@@ -54,13 +54,18 @@ const MODEL_FALLBACK_CHAIN = [
   'gemini-3-flash-preview',
 ];
 
-// Fallback Chain OpenRouter Premium & Free Terupdate (Juni 2026)
-const OPENROUTER_FALLBACK_CHAIN = [
-  'qwen/qwen3-coder-480b-free',         // Qwen3 Coder 480B — GRATIS, 1M Context, Spesialis Coding Utama
-  'deepseek/deepseek-v4-flash',         // DeepSeek V4 Flash — Sangat Cerdas, 1M Context, Super Murah
-  'xiaomi/mimo-v2.5',                   // Xiaomi MiMo-V2.5 — 3.34T MoE Raksasa, 1M Context, Akurasi Tinggi
-  'qwen/qwen3-next-80b-free',           // Qwen3 Next 80B Instruct — Backup Gratisan Kedua
-  'google/gemini-2.5-flash'             // Benteng terakhir cadangan sistem
+const OPENROUTER_COPILOT_CHAIN = [
+  'nvidia/nemotron-3-ultra-550b-a55b:free',  // Paling besar, spesialis reasoning
+  'poolside/laguna-m.1:free',                // Spesialis coding
+  'qwen/qwen3-coder:free',                   // Coding, 1M context
+  'openai/gpt-oss-120b:free',                // Format familiar
+];
+
+const OPENROUTER_WHATSAPP_CHAIN = [
+  'meta-llama/llama-3.3-70b-instruct:free',  // Cepat, conversational
+  'google/gemma-4-31b-it:free',              // Ringan, responsif
+  'openai/gpt-oss-20b:free',                 // Backup ringan
+  'nvidia/nemotron-3-nano-30b-a3b:free',     // Last resort ringan
 ];
 
 const MODEL_ALIASES = {
@@ -74,9 +79,9 @@ const MEMORY_CONFIG = {
   max_turns: 16,
   trim_chars: 150,
   injection_turns: 4,
-  summary_threshold: 15,
-  purgeDays: 30,          // Otomatis hapus sesi lama >30 hari
-  compressThreshold: 1000 // Kompres ke base64 jika pesan >1000 karakter
+  summary_threshold: 6,
+  purgeDays: 30,
+  compressThreshold: 1000
 };
 
 const SEMANTIC_TRIGGERS = /\b(tadi|kemarin|sebelumnya|waktu itu|dulu|minggu lalu|bulan lalu|pernah|ingat|inget|lupa|apa yang|kapan kita|kita pernah|terakhir kali)\b/i;
@@ -198,18 +203,10 @@ let healthStats = { totalRequests: 0, successfulRequests: 0, failedRequests: 0, 
 async function loadLocalMemory(sessionKey) {
   const { data, error } = await supabase
     .from('hermes_memory')
-    .select('summary, turns, last_active')
+    .select('summary, last_active')
     .eq('session_key', sessionKey)
     .maybeSingle();
   if (error || !data) return null;
-
-  if (data.turns) {
-    let filtered = data.turns.filter(t => t.role !== 'tool' && t.role !== 'function');
-    data.turns = filtered.map(t => ({
-      ...t,
-      content: decompressText(t.content)
-    }));
-  }
 
   return data;
 }
@@ -248,26 +245,20 @@ function saveLocalMemory(sessionKey, turns, summary) {
 async function loadRelevantCrossTurns(currentSessionKey) {
   const { data, error } = await supabase
     .from('hermes_memory')
-    .select('session_key, turns, last_active')
+    .select('session_key, summary, last_active')  // ← cukup summary saja
     .neq('session_key', currentSessionKey)
-    .not('turns', 'is', null)
+    .not('summary', 'is', null)
     .order('last_active', { ascending: false })
-    .limit(5);
+    .limit(3);
   if (error || !data?.length) return [];
-  return data.flatMap(r =>
-    (r.turns || []).slice(-2).map(t => ({ role: t.role, content: t.content }))
-  );
+  return data.map(r => ({ role: 'assistant', content: r.summary }));
 }
 
 function buildMemoryInjection(localData, crossTurns = []) {
   const parts = [];
   if (localData?.summary) parts.push(`Ringkasan: ${localData.summary}`);
-  if (localData?.turns?.length) {
-    const recent = localData.turns.slice(-MEMORY_CONFIG.injection_turns);
-    parts.push(`Percakapan sebelumnya (lanjutkan dari sini):\n${recent.map(t => `${t.role}: ${t.content}`).join('\n')}`);
-  }
   if (crossTurns.length > 0) {
-    parts.push(`Konteks sesi lain yang relevan:\n${crossTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`);
+    parts.push(`Konteks sesi lain:\n${crossTurns.map(t => t.content).join(' | ')}`);
   }
   return parts.length
     ? `\n\n---\n[MEMORY CONTEXT - gunakan sebagai konteks internal, jangan diungkapkan ke user. Jika user bertanya "tadi" atau "sebelumnya", jawab berdasarkan ini.]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
@@ -620,28 +611,35 @@ function callOpenRouter(body, model, reqId, timeoutMs) {
 }
 
 async function callWithFallback(body, requestedModel, startIndex, reqId, timeoutMs, sessionKey) {
-  if (sessionKey === 'copilot') {
-    LOG.think(`[${reqId}] OpenRouter Engine matching active for session type: copilot`);
-    for (let i = 0; i < OPENROUTER_FALLBACK_CHAIN.length; i++) {
-      const model = OPENROUTER_FALLBACK_CHAIN[i];
-      LOG.fallback(`[${reqId}] OpenRouter Trigger ${i + 1}/${OPENROUTER_FALLBACK_CHAIN.length}: "${model}"`);
+  const isOpenRouterSession = sessionKey === 'copilot' || sessionKey === 'sebastian';
+
+  if (isOpenRouterSession) {
+    const chain = sessionKey === 'copilot' ? OPENROUTER_COPILOT_CHAIN : OPENROUTER_WHATSAPP_CHAIN;
+    LOG.think(`[${reqId}] OpenRouter chain aktif untuk session: ${sessionKey} (${chain.length} models)`);
+
+    for (let i = 0; i < chain.length; i++) {
+      const model = chain[i];
+      LOG.fallback(`[${reqId}] OpenRouter ${i + 1}/${chain.length}: "${model}"`);
       try {
         const result = await callOpenRouter(body, model, reqId, timeoutMs);
-        if (result) return { res: result, idx: startIndex, model: model }; 
+        if (result) return { res: result, idx: startIndex, model };
       } catch (err) {
-        LOG.warn(`[${reqId}] OpenRouter model "${model}" failed → swapping engine`);
+        LOG.warn(`[${reqId}] OpenRouter "${model}" failed (${err?.type}) → next`);
       }
     }
+
+    // Semua OpenRouter habis → fallback ke Gemini sebagai last resort
+    LOG.fallback(`[${reqId}] Semua OpenRouter ${sessionKey} exhausted → last resort Gemini`);
   }
 
+  // Gemini pool (default untuk sesi lain, atau last resort untuk copilot/whatsapp)
   const resolvedModel = resolveModel(requestedModel);
-  let modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
-
-  LOG.think(`[${reqId}] Model queue: ${modelQueue.join(' → ')}`);
+  const modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
+  LOG.think(`[${reqId}] Gemini queue: ${modelQueue.join(' → ')}`);
 
   for (let i = 0; i < modelQueue.length; i++) {
     const model = modelQueue[i];
-    LOG.fallback(`[${reqId}] Trying model ${i + 1}/${modelQueue.length}: "${model}"`);
+    LOG.fallback(`[${reqId}] Gemini ${i + 1}/${modelQueue.length}: "${model}"`);
     const result = await tryModelWithPool(body, model, startIndex, reqId, timeoutMs);
     if (result) return { ...result, model };
     LOG.fallback(`[${reqId}] "${model}" gagal → next`);
@@ -836,14 +834,6 @@ async function handleChat(req, res) {
     if (!isCronjob) {
       const assistantText = responseMatch ? responseMatch[1].trim() : rawAssistantText;
 
-      const existingTurns = localMemory?.turns || [];
-
-      // [FIX] Pakai content-anchor bukan count/timestamp
-      // Cari turn user/assistant terakhir yang tersimpan, lalu ambil sisanya dari client
-      const lastExisting = existingTurns
-        .filter(t => t.role === 'user' || t.role === 'assistant')
-        .at(-1);
-
       const allClientTurns = messages
         .filter(m =>
           (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
@@ -853,43 +843,17 @@ async function handleChat(req, res) {
         )
         .map(m => ({ role: m.role, content: m.content, ts: m.created_at ? new Date(m.created_at).getTime() : Date.now() }));
 
-      let newTurns;
-      if (!lastExisting) {
-        // Belum ada yang tersimpan, ambil semua
-        newTurns = allClientTurns;
-      } else {
-        // Cari index terakhir di allClientTurns yang match lastExisting
-        const anchorIdx = allClientTurns.findLastIndex(
-          t => t.role === lastExisting.role &&
-               t.content?.trim().slice(0, 100) === lastExisting.content?.trim().slice(0, 100)
-        );
-        if (anchorIdx >= 0) {
-          newTurns = allClientTurns.slice(anchorIdx + 1);
-        } else {
-          // Fallback: tidak ketemu anchor, hitung selisih count
-          const existingCount = existingTurns.filter(
-            t => t.role === 'user' || t.role === 'assistant'
-          ).length;
-          newTurns = allClientTurns.slice(existingCount);
-          LOG.warn(`[${reqId}] Anchor not found, fallback ke count (existingCount=${existingCount})`);
-        }
-      }
-
-      const mergedTurns = [...existingTurns, ...newTurns];
-
-      // [FIX] Simpan assistantText (bukan inlineSummary) sebagai konten turn
-      // inlineSummary hanya dipakai untuk sessionSummary
       if (assistantText) {
-        mergedTurns.push({ role: 'assistant', content: assistantText, ts: Date.now() });
+        allClientTurns.push({ role: 'assistant', content: assistantText, ts: Date.now() });
       }
 
-      LOG.memory(`[${reqId}] Turns: existing=${existingTurns.length} new=${newTurns.length} total=${mergedTurns.length}`);
-
+      LOG.memory(`[${reqId}] Turns: total=${allClientTurns.length} → saving last 6`);
+      
       let sessionSummary = inlineSummary || localMemory?.summary || null;
       if (inlineSummary) LOG.memory(`[${reqId}] Session summary dari inline: "${inlineSummary.slice(0, 80)}"`);
 
-      if (!inlineSummary && mergedTurns.length >= MEMORY_CONFIG.summary_threshold && (!localMemory?.summary || mergedTurns.length % 5 === 0)) {
-        const summaryPrompt = `Buat ringkasan singkat (maks 2 kalimat) dari percakapan berikut:\n${mergedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
+      if (!inlineSummary && allClientTurns.length >= MEMORY_CONFIG.summary_threshold && (!localMemory?.summary || allClientTurns.length % 3 === 0)) {
+        const summaryPrompt = `Buat ringkasan MAKSIMAL 8 kata (padat, tanpa subjek/kata sambung) dari percakapan ini:\n${allClientTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
         try {
           const summaryBody = { messages: [{ role: 'user', content: summaryPrompt }], _memoryInjection: '' };
           summaryBody._cachedPayload = toGeminiPayload(summaryBody, reqId + '_sum', '');
@@ -904,8 +868,7 @@ async function handleChat(req, res) {
         }
       }
 
-      const turnLimit = MEMORY_CONFIG.max_turns + Math.floor(mergedTurns.length / MEMORY_CONFIG.summary_threshold);
-      saveLocalMemory(sessionKey, mergedTurns.slice(-turnLimit), sessionSummary);
+      saveLocalMemory(sessionKey, allClientTurns.slice(-6), sessionSummary);
     }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
@@ -936,7 +899,14 @@ app.use((req, res, next) => { const key = `${req.method}:${req.path}`; if (!LOG_
 const initDashboardRouter = require('./dashboard.cjs');
 app.use('/dashboard', initDashboardRouter(supabase, process.env.SUPABASE_URL, process.env.SUPABASE_KEY));
 
-const MODELS_LIST = { object: 'list', data: [...MODEL_FALLBACK_CHAIN, ...OPENROUTER_FALLBACK_CHAIN].map(id => ({ id, object: 'model', created: 1700000000, owned_by: 'google' })) };
+const MODELS_LIST = {
+  object: 'list',
+  data: [
+    ...MODEL_FALLBACK_CHAIN,
+    ...OPENROUTER_COPILOT_CHAIN,
+    ...OPENROUTER_WHATSAPP_CHAIN,
+  ].map(id => ({ id, object: 'model', created: 1700000000, owned_by: 'google' }))
+};
 
 // ============================================================
 // HEALTH CHECK ENDPOINT
