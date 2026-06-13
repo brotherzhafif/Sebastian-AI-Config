@@ -39,6 +39,7 @@ hooks/*
 !Dockerfile
 !package.json
 !dashboard.cjs
+!README.md
 
 # ==========================================
 # KEAMANAN KRUSIAL: JANGAN PERNAH DIHAPUS
