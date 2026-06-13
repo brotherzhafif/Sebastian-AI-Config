@@ -42,7 +42,7 @@ const supabase = createClient(
   process.env.SUPABASE_KEY,
   {
     auth: { persistSession: false },
-    global: { headers: { 'x-application-name': 'hermes-bridge' } },
+    global: { headers: { 'x-application-name': 'brotherzhafif' } },
     realtime: { transport: ws }
   }
 );
@@ -232,7 +232,7 @@ function loadPersona() {
 const PERSONA = loadPersona();
 LOG.persona(`Persona dimuat (${PERSONA.length} chars)`);
 
-function buildTokenPool() {
+function buildGeminiTokenPool() {
   const seen = new Set();
   const pool = [];
   const push = (val) => {
@@ -247,9 +247,25 @@ function buildTokenPool() {
   return pool;
 }
 
-const TOKEN_POOL = buildTokenPool();
-if (TOKEN_POOL.length === 0) { LOG.err('Tidak ada token API ditemukan di .env!'); process.exit(1); }
-LOG.token(`${TOKEN_POOL.length} token terdeteksi: [${TOKEN_POOL.map((_, i) => `tok#${i}`).join(', ')}]`);
+function buildOpenRouterTokenPool() {
+  const seen = new Set();
+  const pool = [];
+  const push = (val) => {
+    if (!val) return;
+    const v = val.trim();
+    if (v.length > 10 && !seen.has(v)) { seen.add(v); pool.push(v); }
+  };
+  for (const [key, val] of Object.entries(process.env)) {
+    if (/OPENROUTER_API_KEY/i.test(key)) String(val).split(',').forEach(push);
+  }
+  return pool;
+}
+
+const OPENROUTER_TOKEN_POOL = buildOpenRouterTokenPool();
+LOG.token(`${OPENROUTER_TOKEN_POOL.length} OpenRouter token terdeteksi`);
+
+const GEMINI_TOKEN_POOL = buildGeminiTokenPool();
+LOG.token(`${GEMINI_TOKEN_POOL.length} Gemini token terdeteksi`);
 
 let globalIndex = 0;
 const SERVER_START_TIME = Date.now();
@@ -527,7 +543,7 @@ function callGemini(body, apiKey, tokenIndex, model, reqId, timeoutMs) {
 async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs, sessionKey) {
   body._cachedPayload = toGeminiPayload(body, reqId, body._memoryInjection, sessionKey);
   
-  const total = TOKEN_POOL.length;
+  const total = GEMINI_TOKEN_POOL.length;
   const MAX_ROUNDS = 2;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -538,7 +554,7 @@ async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs, sessi
       LOG.race(`[${reqId}] Trying tok#${idx}`);
       
       try {
-        const result = await callGemini(body, TOKEN_POOL[idx], idx, model, reqId, timeoutMs);
+        const result = await callGemini(body, GEMINI_TOKEN_POOL[idx], idx, model, reqId, timeoutMs);
         return { res: result, idx };
       } catch (err) {
         LOG.warn(`[${reqId}] tok#${idx} failed: ${err?.type} → next`);
@@ -608,10 +624,9 @@ function toOpenRouterPayload(body, model, memoryInjection, sessionKey, reqId) {
   return JSON.stringify(payload);
 }
 
-function callOpenRouter(body, model, reqId, timeoutMs, sessionKey) {
+function callOpenRouter(body, model, reqId, timeoutMs, sessionKey, apiKey) {
   return new Promise((resolve, reject) => {
     const t0 = Date.now();
-    const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) return reject({ type: 'CONFIG_ERROR', message: 'OPENROUTER_API_KEY kosong' });
     const payload = toOpenRouterPayload(body, model, body._memoryInjection, sessionKey, reqId);
     let done = false;
@@ -623,7 +638,7 @@ function callOpenRouter(body, model, reqId, timeoutMs, sessionKey) {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://github.com/hermes-bridge',
+        'HTTP-Referer': 'https://github.com/brotherzhafif',
         'X-Title': 'Hermes Copilot Engine',
         'Content-Length': Buffer.byteLength(payload)
       },
@@ -698,20 +713,28 @@ async function callWithFallback(body, requestedModel, startIndex, reqId, timeout
 
   if (isOpenRouterSession) {
     const chain = sessionKey === 'copilot' ? OPENROUTER_COPILOT_CHAIN : OPENROUTER_WHATSAPP_CHAIN;
-    LOG.think(`[${reqId}] OpenRouter chain aktif untuk session: ${sessionKey} (${chain.length} models)`);
-
+    LOG.think(`[${reqId}] OpenRouter chain aktif untuk session: ${sessionKey} (${chain.length} models x ${OPENROUTER_TOKEN_POOL.length || 1} tokens)`);
+    
     for (let i = 0; i < chain.length; i++) {
       const model = chain[i];
-      LOG.fallback(`[${reqId}] OpenRouter ${i + 1}/${chain.length}: "${model}"`);
-      try {
-        const result = await callOpenRouter(body, model, reqId, timeoutMs, sessionKey);
-        if (result) return { res: result, idx: startIndex, model };
-      } catch (err) {
-        LOG.warn(`[${reqId}] OpenRouter "${model}" failed (${err?.type}) → next`);
+
+      const tokens = OPENROUTER_TOKEN_POOL.length > 0 ? OPENROUTER_TOKEN_POOL : [process.env.OPENROUTER_API_KEY];
+
+      for (let t = 0; t < tokens.length; t++) {
+        LOG.fallback(`[${reqId}] OpenRouter ${i + 1}/${chain.length}: "${model}" (tok#${t})`);
+        try {
+          const result = await callOpenRouter(body, model, reqId, timeoutMs, sessionKey, tokens[t]);
+          if (result) return { res: result, idx: startIndex, model };
+        } catch (err) {
+          LOG.warn(`[${reqId}] OpenRouter "${model}" tok#${t} failed (${err?.type}) → next`);
+          if (err?.type === 'API_ERROR' && /rate limit/i.test(err?.message || '')) {
+            continue;
+          }
+          break;
+        }
       }
     }
 
-    // Semua OpenRouter habis → fallback ke Gemini sebagai last resort
     LOG.fallback(`[${reqId}] Semua OpenRouter ${sessionKey} exhausted → last resort Gemini`);
   }
 
@@ -923,7 +946,7 @@ async function handleChat(req, res) {
     const { res: geminiRes, idx: winnerIdx, model: usedModel } = await callWithFallback(body, model, startIndex, reqId, timeoutMs, sessionKey);
     if (heartbeat) clearInterval(heartbeat);
     setSessionIndexRemote(sessionKey, winnerIdx);
-    globalIndex = (winnerIdx + 1) % TOKEN_POOL.length;
+    globalIndex = (winnerIdx + 1) % GEMINI_TOKEN_POOL.length;
 
     if (!isCronjob) {
       const rawAssistantText = geminiRes.candidates?.[0]?.content?.parts
@@ -995,7 +1018,7 @@ async function handleChat(req, res) {
     
     const tookMs = Date.now() - (body._t0 || 0);
     LOG.err(`[${reqId}] ERR /chat | model=${model} stream=${stream} took=${tookMs}ms err="${err.message}"`);
-    setSessionIndexRemote(sessionKey, (startIndex + 1) % TOKEN_POOL.length);
+    setSessionIndexRemote(sessionKey, (startIndex + 1) % GEMINI_TOKEN_POOL.length);
     recordRequestRemote({ model, inputTokens: 0, outputTokens: 0, tokenIdx: -1, success: false, ms: 0 });
     return sendError(chunkId, model, ERROR_MSG, stream, res, reqId);
   }
@@ -1116,6 +1139,6 @@ app.get('/memory/search', async (req, res) => {
 app.listen(PORT, () => {
   LOG.boot(`Hermes v11 running on :${PORT}`);
   LOG.boot(`Dashboard → http://localhost:${PORT}/dashboard`);
-  LOG.boot(`Pool: ${TOKEN_POOL.length} tokens | Default: ${DEFAULT_MODEL}`);
+  LOG.boot(`Pool: ${GEMINI_TOKEN_POOL.length} tokens | Default: ${DEFAULT_MODEL}`);
   LOG.boot(`Timeout: normal=${TIMEOUT_NORMAL}ms tool-chain=${TIMEOUT_TOOL}ms`);
 });
