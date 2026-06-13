@@ -81,7 +81,6 @@ const MEMORY_CONFIG = {
   injection_turns: 4,
   summary_threshold: 6,
   purgeDays: 30,
-  compressThreshold: 1000
 };
 
 const SEMANTIC_TRIGGERS = /\b(tadi|kemarin|sebelumnya|waktu itu|dulu|minggu lalu|bulan lalu|pernah|ingat|inget|lupa|apa yang|kapan kita|kita pernah|terakhir kali)\b/i;
@@ -133,19 +132,6 @@ function compressText(text) {
   let out = text;
   for (const [pattern, replacement] of COMPRESSION_RULES) out = out.replace(pattern, replacement);
   return out.trim();
-}
-
-function decompressText(text) {
-  if (!text || typeof text !== 'string') return text;
-  if (text.startsWith('b64:')) {
-    try {
-      return Buffer.from(text.slice(4), 'base64').toString('utf8');
-    } catch (e) {
-      LOG.warn(`Gagal decompress text base64: ${e.message}`);
-      return text;
-    }
-  }
-  return text;
 }
 
 function compressMessages(messages) {
@@ -203,7 +189,7 @@ let healthStats = { totalRequests: 0, successfulRequests: 0, failedRequests: 0, 
 async function loadLocalMemory(sessionKey) {
   const { data, error } = await supabase
     .from('hermes_memory')
-    .select('summary, last_active')
+    .select('summary, turns, last_active')
     .eq('session_key', sessionKey)
     .maybeSingle();
   if (error || !data) return null;
@@ -212,22 +198,14 @@ async function loadLocalMemory(sessionKey) {
 }
 
 function saveLocalMemory(sessionKey, turns, summary) {
-  const processedTurns = turns.map(t => {
-    if (t.content && t.content.length > MEMORY_CONFIG.compressThreshold) {
-      const b64Str = Buffer.from(t.content, 'utf8').toString('base64');
-      return { ...t, content: `b64:${b64Str}`, compressed: true };
-    }
-    return t;
-  });
-
   supabase.from('hermes_memory')
     .upsert(
-      { session_key: sessionKey, summary: summary || null, turns: processedTurns, updated_at: new Date(), last_active: new Date() },
+      { session_key: sessionKey, summary: summary || null, turns, updated_at: new Date(), last_active: new Date() },
       { onConflict: 'session_key' }
     )
     .then(({ error }) => {
       if (error) LOG.err(`Gagal save memory: ${error.message}`);
-      else LOG.memory(`Memory saved → session="${sessionKey.slice(0, 20)}" turns=${processedTurns.length}`);
+      else LOG.memory(`Memory saved → session="${sessionKey.slice(0, 20)}" turns=${turns.length}`);
     });
 
   const cutoffDate = new Date();
@@ -847,7 +825,16 @@ async function handleChat(req, res) {
         allClientTurns.push({ role: 'assistant', content: assistantText, ts: Date.now() });
       }
 
-      LOG.memory(`[${reqId}] Turns: total=${allClientTurns.length} → saving last 6`);
+      const previousTurns = Array.isArray(localMemory?.turns) ? localMemory.turns : [];
+      const combined = [...previousTurns, ...allClientTurns];
+      const seen = new Set();
+      const combinedTurns = combined.filter(t => {
+        const key = `${t.role}:${t.content}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      LOG.memory(`[${reqId}] Turns: prev=${previousTurns.length} new=${allClientTurns.length} combined=${combinedTurns.length} → saving last 6`);
       
       let sessionSummary = inlineSummary || localMemory?.summary || null;
       if (inlineSummary) LOG.memory(`[${reqId}] Session summary dari inline: "${inlineSummary.slice(0, 80)}"`);
@@ -868,7 +855,7 @@ async function handleChat(req, res) {
         }
       }
 
-      saveLocalMemory(sessionKey, allClientTurns.slice(-6), sessionSummary);
+      saveLocalMemory(sessionKey, combinedTurns.slice(-6), sessionSummary);
     }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
@@ -929,7 +916,6 @@ app.get('/health', (req, res) => {
       INJECTION_TURNS: MEMORY_CONFIG.injection_turns,
       SUMMARY_THRESHOLD: MEMORY_CONFIG.summary_threshold,
       PURGE_DAYS: MEMORY_CONFIG.purgeDays,
-      COMPRESS_THRESHOLD: MEMORY_CONFIG.compressThreshold,
       OPENAI_MODEL: process.env.OPENAI_MODEL || 'default',
       GEMINI_MODEL: process.env.GEMINI_MODEL || 'default',
       FALLBACK_MODELS: MODEL_FALLBACK_CHAIN.join(','),
