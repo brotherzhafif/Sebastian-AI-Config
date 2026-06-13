@@ -28,6 +28,7 @@ if command -v sebastian &> /dev/null; then
   npm install
   sleep 2
   sebastian gateway start
+  hermes update
   echo "✓ Sebastian Gateway aktif."
 else
   echo "⚠️  Command 'sebastian' tidak ditemukan, skip."

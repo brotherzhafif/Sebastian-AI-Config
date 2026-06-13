@@ -185,13 +185,6 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
             <option value="openai/gpt-oss-20b:free">GPT OSS 20B</option>
             <option value="nvidia/nemotron-3-nano-30b-a3b:free">Nemotron Nano 30B</option>
           </optgroup>
-          <optgroup label="— OpenRouter (Legacy) —">
-            <option value="qwen/qwen3-coder-480b-free">Qwen3 Coder 480B</option>
-            <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
-            <option value="xiaomi/mimo-v2.5">Xiaomi MiMo-V2.5</option>
-            <option value="qwen/qwen3-next-80b-free">Qwen3 Next 80B</option>
-            <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (OR)</option>
-          </optgroup>
         </select>
 
         <label style="font-size:12px;color:var(--muted)">Pecah:</label>
@@ -258,29 +251,23 @@ function getDashboardHTML(supabaseUrl, supabaseKey) {
         // ── Palette warna unik per model, sinkron dengan server.cjs ──
         const modelColors = {
           // Gemini
-          'gemini-2.5-flash':                    '#6366f1',
-          'gemini-2.5-flash-lite':               '#818cf8',
-          'gemini-3.5-flash':                    '#3b82f6',
-          'gemini-flash-latest':                 '#22c55e',
-          'gemini-3-flash-preview':              '#06b6d4',
+          'gemini-2.5-flash':                       '#6366f1',
+          'gemini-2.5-flash-lite':                  '#818cf8',
+          'gemini-3.5-flash':                       '#3b82f6',
+          'gemini-flash-latest':                    '#22c55e',
+          'gemini-3-flash-preview':                 '#06b6d4',
           // OpenRouter — Copilot Chain
           'nvidia/nemotron-3-ultra-550b-a55b:free': '#f59e0b',
-          'poolside/laguna-m.1:free':            '#fb923c',
-          'qwen/qwen3-coder:free':               '#facc15',
-          'openai/gpt-oss-120b:free':            '#a3e635',
+          'poolside/laguna-m.1:free':               '#fb923c',
+          'qwen/qwen3-coder:free':                  '#facc15',
+          'openai/gpt-oss-120b:free':               '#a3e635',
           // OpenRouter — WhatsApp Chain
           'meta-llama/llama-3.3-70b-instruct:free': '#c084fc',
-          'google/gemma-4-31b-it:free':          '#34d399',
-          'openai/gpt-oss-20b:free':             '#2dd4bf',
-          'nvidia/nemotron-3-nano-30b-a3b:free': '#38bdf8',
-          // OpenRouter — Legacy
-          'qwen/qwen3-coder-480b-free':          '#f97316',
-          'deepseek/deepseek-v4-flash':          '#ef4444',
-          'xiaomi/mimo-v2.5':                    '#a855f7',
-          'qwen/qwen3-next-80b-free':            '#ec4899',
-          'google/gemini-2.5-flash':             '#14b8a6',
+          'google/gemma-4-31b-it:free':             '#34d399',
+          'openai/gpt-oss-20b:free':                '#2dd4bf',
+          'nvidia/nemotron-3-nano-30b-a3b:free':    '#38bdf8',
           // Fallback
-          'other':                               '#64748b'
+          'other':                                  '#64748b'
         };
 
         function toggleRangeInputs() {
@@ -520,7 +507,7 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
 
   router.get('/api/memory', async (req, res) => {
     const { data, error } = await supabase
-      .from('hermes_memory')
+      .from('hermes_sessions')
       .select('session_key, summary, turns, last_active, updated_at')
       .order('last_active', { ascending: false })
       .limit(50);
@@ -544,7 +531,7 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
       const localNow = new Date(Date.now() + tzOffset);
       const localTodayStr = localNow.toISOString().split('T')[0];
 
-      if (range === 'today') {
+    if (range === 'today') {
         query = query.gte('created_at', `${localTodayStr} 00:00:00`).lte('created_at', `${localTodayStr} 23:59:59`);
         if (bucketType === 'auto') bucketType = 'hour';
       } else if (range === 'week') {
@@ -599,9 +586,6 @@ function initDashboardRouter(supabase, supabaseUrl, supabaseKey) {
         // OpenRouter WhatsApp Chain
         'meta-llama/llama-3.3-70b-instruct:free', 'google/gemma-4-31b-it:free',
         'openai/gpt-oss-20b:free', 'nvidia/nemotron-3-nano-30b-a3b:free',
-        // OpenRouter Legacy
-        'qwen/qwen3-coder-480b-free', 'deepseek/deepseek-v4-flash',
-        'xiaomi/mimo-v2.5', 'qwen/qwen3-next-80b-free', 'google/gemini-2.5-flash'
       ]);
 
       const modelShare = {};
