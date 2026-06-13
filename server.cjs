@@ -597,10 +597,10 @@ function toOpenRouterPayload(body, model, memoryInjection, sessionKey, reqId) {
   };
 
   if (body.max_tokens) {
-    payload.max_tokens = Math.min(body.max_tokens, 4096);
+    payload.max_tokens = Math.min(Math.max(body.max_tokens || 1024, 512), 4096);
   }
 
-  if (body.tools && body.tools.length > 0) {
+  if (body.tools && body.tools.length > 0) {``
     LOG.tool(`[OpenRouter] Meneruskan ${body.tools.length} tools asli ke model: ${model}`);
     payload.tools = body.tools;
   }
@@ -784,6 +784,13 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
       .replace(/<compact>[\s\S]*$/i, '')
       .replace(/<\/compact>/gi, '')
       .trim();
+  }
+
+  // Deteksi output kacau: JSON mentah bocor, atau kosong
+  const looksLikeRawJSON = /^\s*\{[\s\S]*"(question|choices|tool_call|function)"/i.test(text);
+  if (!text || looksLikeRawJSON) {
+    LOG.warn(`[${reqId}] Output rusak/bocor (raw JSON atau kosong) → fallback message`);
+    text = 'Maaf, kepikiran sesuatu yang aneh barusan. Bisa diulang pertanyaannya?';
   }
 
   LOG.out(`[${reqId}] → TEXT: ${text.length} chars | "${text.slice(0, 100).replace(/\n/g, ' ')}"`);
