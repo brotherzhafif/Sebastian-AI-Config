@@ -198,6 +198,17 @@ function stripResponseTags(text) {
   return text.replace(/<compact>[\s\S]*?<\/compact>/gi, '').trim();
 }
 
+function isDegenerateOutput(text) {
+  if (!text || text.length < 50) return false;
+  // Cek repetisi karakter panjang (EKEKEK...)
+  if (/(.{2,10})\1{15,}/i.test(text)) return true;
+  // Cek word spam (same same same...)
+  const words = text.trim().split(/\s+/).slice(0, 80);
+  const unique = new Set(words);
+  if (words.length > 30 && unique.size < 6) return true;
+  return false;
+}
+
 function compressText(text) {
   if (!text || typeof text !== 'string') return text;
   if (text.length < 100) return text;
@@ -316,23 +327,46 @@ function archiveSummary(sessionKey, oldSummary) {
     });
 }
 
-async function searchLongTermMemory(sessionKey, query, limit = 5) {
-  let q = supabase
+async function searchLongTermMemory(sessionKey, query, limit = 10) {
+  // Ambil semua recent dulu
+  const { data, error } = await supabase
     .from('hermes_memory_archive')
     .select('summary, created_at')
     .eq('session_key', sessionKey)
     .order('created_at', { ascending: false })
     .limit(limit);
 
+  if (error || !data?.length) return [];
+
+  // Kalau ada query keyword, prioritaskan yang match
   if (query) {
-    q = q.ilike('summary', `%${query}%`);
+    const matched = data.filter(r => r.summary.toLowerCase().includes(query.toLowerCase()));
+    const rest = data.filter(r => !r.summary.toLowerCase().includes(query.toLowerCase()));
+    return [...matched, ...rest].slice(0, limit).map(r => ({
+      content: `[${new Date(r.created_at).toLocaleDateString('id-ID')}] ${r.summary}`
+    }));
   }
 
-  const { data, error } = await q;
-  if (error || !data?.length) return [];
   return data.map(r => ({
     content: `[${new Date(r.created_at).toLocaleDateString('id-ID')}] ${r.summary}`
   }));
+}
+
+async function searchWikiForQuery(query) {
+  const wikiPath = process.env.WIKI_PATH || `${process.env.HOME}/wiki`;
+  const { execSync } = require('child_process');
+  try {
+    const result = execSync(
+      `grep -ril "${query.replace(/"/g, '')}" ${wikiPath}/queries ${wikiPath}/concepts ${wikiPath}/entities 2>/dev/null | head -3`,
+      { timeout: 3000, encoding: 'utf8' }
+    ).trim();
+    if (!result) return null;
+    const files = result.split('\n').filter(Boolean);
+    const contents = files.map(f => {
+      try { return fs.readFileSync(f, 'utf8').slice(0, 500); } catch { return null; }
+    }).filter(Boolean);
+    return contents.length ? contents.join('\n\n---\n\n') : null;
+  } catch { return null; }
 }
 
 function buildMemoryInjection(localData, longTermEntries = []) {
@@ -809,12 +843,13 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId, sess
       .trim();
   }
 
-  // Deteksi output kacau: JSON mentah bocor di LUAR tag <code>, atau kosong
+  // Deteksi output kacau: JSON mentah bocor di LUAR tag <code>, atau kosong, atau degenerate
   const textOutsideCode = text.replace(/<code>[\s\S]*?<\/code>/gi, '');
   const looksLikeRawJSON = sessionKey === 'sebastian' &&
     /\{[\s\S]*"question"\s*:[\s\S]*"choices"\s*:\s*\[/i.test(textOutsideCode);
-  if (!text || looksLikeRawJSON) {
-    LOG.warn(`[${reqId}] Output rusak/bocor (raw JSON di luar <code>, atau kosong) → fallback message`);
+  if (!text || looksLikeRawJSON || isDegenerateOutput(text)) {
+    if (isDegenerateOutput(text)) LOG.warn(`[${reqId}] Degenerate output terdeteksi (${text.length} chars) → fallback message`);
+    else LOG.warn(`[${reqId}] Output rusak/bocor (raw JSON di luar <code>, atau kosong) → fallback message`);
     text = 'Maaf, kepikiran sesuatu yang aneh barusan. Bisa diulang pertanyaannya?';
   }
 
@@ -918,7 +953,20 @@ async function handleChat(req, res) {
 
   const lastUserMsg = String(messages.findLast(m => m.role === 'user')?.content || '');
   const isSemanticQuery = !isCronjob && SEMANTIC_TRIGGERS.test(lastUserMsg) && !!localMemory?.summary;
-  const longTermEntries = isSemanticQuery ? await searchLongTermMemory(sessionKey, null, 5) : [];
+  const semanticKeyword = isSemanticQuery
+  ? lastUserMsg.replace(/\b(tadi|kemarin|sebelumnya|waktu itu|dulu|minggu lalu|bulan lalu|pernah|ingat|inget|lupa|apa yang|kapan kita|kita pernah|terakhir kali)\b/gi, '').trim().slice(0, 50)
+  : null;
+
+  let longTermEntries = [];
+  if (isSemanticQuery) {
+    const wikiHit = await searchWikiForQuery(semanticKeyword || lastUserMsg.slice(0, 50));
+    if (wikiHit) {
+      LOG.memory(`[${reqId}] Wiki hit → inject wiki content`);
+      longTermEntries = [{ content: `[WIKI] ${wikiHit}` }];
+    } else {
+      longTermEntries = await searchLongTermMemory(sessionKey, semanticKeyword, 10);
+    }
+  }
 
   if (isSemanticQuery) LOG.memory(`[${reqId}] Semantic trigger aktif → pull long-term memory (${longTermEntries.length} entries)`);
 
@@ -1073,11 +1121,6 @@ app.get('/health', (req, res) => {
 app.post('/v1/chat/completions', handleChat);
 app.post('/chat/completions', handleChat);
 app.get('/v1/models', (_, res) => res.json(MODELS_LIST));
-app.use((req, res) => {
-  if (req.method === 'POST') return handleChat(req, res);
-  if (req.path === '/' || req.path === '') return res.redirect('/dashboard');
-  return res.json({ status: 'Hermes Bridge Active', engine: 'Sebastian Engine v11' });
-});
 
 app.delete('/memory/all', async (req, res) => {
   const { error } = await supabase.from('hermes_sessions')
@@ -1134,6 +1177,34 @@ app.get('/memory/search', async (req, res) => {
   const { data, error } = await query.limit(50);
   if (error) return res.status(500).json({ ok: false, error: error.message });
   res.json({ ok: true, results: data });
+});
+
+// GET /memory/current/:sessionKey
+app.get('/memory/current/:sessionKey', async (req, res) => {
+  const { data, error } = await supabase.from('hermes_sessions')
+    .select('summary, turns, token_index, last_active')
+    .eq('session_key', req.params.sessionKey)
+    .maybeSingle();
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  res.json({ ok: true, session: data });
+});
+
+// GET /memory/archive/:sessionKey
+app.get('/memory/archive/:sessionKey', async (req, res) => {
+  const limit = parseInt(req.query.limit) || 10;
+  const { data, error } = await supabase.from('hermes_memory_archive')
+    .select('summary, created_at')
+    .eq('session_key', req.params.sessionKey)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  res.json({ ok: true, entries: data });
+});
+
+app.use((req, res) => {
+  if (req.method === 'POST') return handleChat(req, res);
+  if (req.path === '/' || req.path === '') return res.redirect('/dashboard');
+  return res.json({ status: 'Hermes Bridge Active', engine: 'Sebastian Engine v11' });
 });
 
 app.listen(PORT, () => {
