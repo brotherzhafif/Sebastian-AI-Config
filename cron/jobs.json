@@ -170,7 +170,56 @@
         "search"
       ],
       "workdir": null
+    },
+    {
+      "id": "da2ddbac8181",
+      "name": "Daily Conversation Summary",
+      "prompt": "1. Ambil semua ringkasan percakapan hari ini menggunakan curl ke `http://localhost:9089/memory/search?session=sebastian&from={TODAY}T00:00:00+07:00&to={TODAY}T23:59:59+07:00` (ganti {TODAY} dengan tanggal hari ini format YYYY-MM-DD).\n2. Gabungkan semua ringkasan tersebut menjadi satu summary harian yang padat dan reflektif.\n3. Simpan hasil summary ke `~/wiki/queries/conversation-{TODAY}.md` menggunakan skill 'llm-wiki' dengan frontmatter yang sesuai SCHEMA.md.\n4. Update `index.md` dan `log.md` melalui skill 'llm-wiki' untuk mencatat entri baru ini.\n5. Gunakan skill 'global-memory-manager' untuk memastikan pengambilan data memory archive dilakukan dengan benar.",
+      "skills": [
+        "global-memory-manager",
+        "llm-wiki"
+      ],
+      "skill": "global-memory-manager",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "59 23 * * *",
+        "display": "59 23 * * *"
+      },
+      "schedule_display": "59 23 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-14T02:30:28.102084+07:00",
+      "next_run_at": "2026-06-14T23:59:00+07:00",
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": [
+        "terminal",
+        "file",
+        "skills"
+      ],
+      "workdir": null
     }
   ],
-  "updated_at": "2026-06-13T21:00:50.844381+07:00"
+  "updated_at": "2026-06-14T02:30:28.102777+07:00"
 }

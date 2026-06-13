@@ -822,8 +822,9 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId, sess
     return res.json(payload);
   }
 
-  const rawText = parts.map(p => p.text || '').join('').trimStart();
-  const responseMatch = rawText.match(/<response>([\s\S]*?)<\/response>/i);
+  const rawText = parts.map(p => p.text || '').join('').trim();
+  const responseMatch = rawText.match(/<response>([\s\S]*?)<\/response>/i) ||
+    (rawText.includes('<response>') ? [null, rawText.replace(/^[\s\S]*<response>/i, '').replace(/<\/response>[\s\S]*$/i, '')] : null);
   const compactMatch  = rawText.match(/<compact>([\s\S]*?)<\/compact>/i);
   let text       = responseMatch ? responseMatch[1].trim() : rawText;
   const compact  = compactMatch  ? compactMatch[1].trim()  : null;
@@ -834,14 +835,18 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId, sess
   }
 
   // Fallback: tag bocor/tidak closed → strip manual
-  if (!responseMatch && /<response>|<\/response>|<compact>|<\/compact>/i.test(text)) {
+  if (/<response>|<\/response>|<compact>|<\/compact>/i.test(text)) {
     LOG.warn(`[${reqId}] Tag <response>/<compact> bocor, fallback strip manual`);
     text = text
-      .replace(/<\/?response>/gi, '')
+      .replace(/<compact>[\s\S]*?<\/compact>/gi, '')
       .replace(/<compact>[\s\S]*$/i, '')
+      .replace(/<\/?response>/gi, '')
       .replace(/<\/compact>/gi, '')
       .trim();
   }
+
+  text = text.replace(/^\n+/, '').trimStart();
+  LOG.out(`[${reqId}] → TEXT: ${text.length} chars | "${text.slice(0, 100).replace(/\n/g, ' ')}"`);
 
   // Deteksi output kacau: JSON mentah bocor di LUAR tag <code>, atau kosong, atau degenerate
   const textOutsideCode = text.replace(/<code>[\s\S]*?<\/code>/gi, '');
