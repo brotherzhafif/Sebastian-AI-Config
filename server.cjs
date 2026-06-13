@@ -600,7 +600,7 @@ function toOpenRouterPayload(body, model, memoryInjection, sessionKey, reqId) {
     payload.max_tokens = Math.min(Math.max(body.max_tokens || 1024, 512), 4096);
   }
 
-  if (body.tools && body.tools.length > 0) {``
+  if (body.tools && body.tools.length > 0) {
     LOG.tool(`[OpenRouter] Meneruskan ${body.tools.length} tools asli ke model: ${model}`);
     payload.tools = body.tools;
   }
@@ -732,7 +732,7 @@ async function callWithFallback(body, requestedModel, startIndex, reqId, timeout
   throw new Error('POOL_EXHAUSTED');
 }
 
-function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
+function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId, sessionKey) {
   const candidate = geminiRes.candidates?.[0];
   const parts = candidate?.content?.parts || [];
   const firstPart = parts[0];
@@ -786,10 +786,12 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
       .trim();
   }
 
-  // Deteksi output kacau: JSON mentah bocor, atau kosong
-  const looksLikeRawJSON = /^\s*\{[\s\S]*"(question|choices|tool_call|function)"/i.test(text);
+  // Deteksi output kacau: JSON mentah bocor di LUAR tag <code>, atau kosong
+  const textOutsideCode = text.replace(/<code>[\s\S]*?<\/code>/gi, '');
+  const looksLikeRawJSON = sessionKey === 'sebastian' &&
+    /\{[\s\S]*"question"\s*:[\s\S]*"choices"\s*:\s*\[/i.test(textOutsideCode);
   if (!text || looksLikeRawJSON) {
-    LOG.warn(`[${reqId}] Output rusak/bocor (raw JSON atau kosong) → fallback message`);
+    LOG.warn(`[${reqId}] Output rusak/bocor (raw JSON di luar <code>, atau kosong) → fallback message`);
     text = 'Maaf, kepikiran sesuatu yang aneh barusan. Bisa diulang pertanyaannya?';
   }
 
@@ -980,7 +982,7 @@ async function handleChat(req, res) {
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
     healthStats.successfulRequests++;
-    return buildOpenAIResponse(geminiRes, chunkId, usedModel, stream, res, reqId);
+    return buildOpenAIResponse(geminiRes, chunkId, usedModel, stream, res, reqId, sessionKey);
 
   } catch (err) {
     if (heartbeat) clearInterval(heartbeat);

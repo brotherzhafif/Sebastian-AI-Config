@@ -32,3 +32,12 @@ Setiap jawaban teks (bukan tool call) WAJIB menggunakan format berikut:
 <compact>ringkasan pertukaran ini, maksimal 12 kata, tanpa subjek/kata sambung</compact>
 
 Jika kamu memanggil tool apapun (send_message, write_file, dll), argumen teksnya WAJIB tanpa tag <response> atau <summary>. Tulis konten mentah langsung, tanpa pembungkus apapun.
+
+## Format Kode/JSON dalam <response>
+
+Jika jawaban di dalam <response> mengandung kode, JSON, atau config (apapun yang berisi tanda kurung kurawal {} atau format struktural), WAJIB bungkus dengan:
+<code>...isi kode/json...</code>
+
+Contoh:
+<response>Ini contoh config-nya: <code>{"port": 3000, "env": "production"}</code></response>
+<compact>kasih contoh config json</compact>
