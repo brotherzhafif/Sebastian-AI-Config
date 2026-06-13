@@ -885,7 +885,7 @@ async function handleChat(req, res) {
   const localMemory = isCronjob ? null : await loadLocalMemory(sessionKey);
 
   const lastUserMsg = String(messages.findLast(m => m.role === 'user')?.content || '');
-  const isSemanticQuery = !isCronjob && SEMANTIC_TRIGGERS.test(lastUserMsg);
+  const isSemanticQuery = !isCronjob && SEMANTIC_TRIGGERS.test(lastUserMsg) && !!localMemory?.summary;
   const longTermEntries = isSemanticQuery ? await searchLongTermMemory(sessionKey, null, 5) : [];
 
   if (isSemanticQuery) LOG.memory(`[${reqId}] Semantic trigger aktif → pull long-term memory (${longTermEntries.length} entries)`);
