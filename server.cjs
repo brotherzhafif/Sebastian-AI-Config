@@ -123,7 +123,7 @@ function stripResponseTags(text) {
   if (!text || typeof text !== 'string') return text;
   const match = text.match(/<response>([\s\S]*?)<\/response>/i);
   if (match) return match[1].trim();
-  return text.replace(/<summary>[\s\S]*?<\/summary>/gi, '').trim();
+  return text.replace(/<compact>[\s\S]*?<\/compact>/gi, '').trim();
 }
 
 function compressText(text) {
@@ -188,19 +188,18 @@ let healthStats = { totalRequests: 0, successfulRequests: 0, failedRequests: 0, 
 // ============================================================
 async function loadLocalMemory(sessionKey) {
   const { data, error } = await supabase
-    .from('hermes_memory')
+    .from('hermes_sessions')
     .select('summary, turns, last_active')
     .eq('session_key', sessionKey)
     .maybeSingle();
   if (error || !data) return null;
-
   return data;
 }
 
 function saveLocalMemory(sessionKey, turns, summary) {
-  supabase.from('hermes_memory')
+  supabase.from('hermes_sessions')
     .upsert(
-      { session_key: sessionKey, summary: summary || null, turns, updated_at: new Date(), last_active: new Date() },
+      { session_key: sessionKey, summary: summary || null, turns, last_active: new Date() },
       { onConflict: 'session_key' }
     )
     .then(({ error }) => {
@@ -210,33 +209,49 @@ function saveLocalMemory(sessionKey, turns, summary) {
 
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - MEMORY_CONFIG.purgeDays);
-  
-  supabase.from('hermes_memory')
-    .delete()
+
+  supabase.from('hermes_sessions')
+    .update({ turns: [], summary: null })
     .lt('last_active', cutoffDate.toISOString())
-    .then(({ error, count }) => {
+    .then(({ error }) => {
       if (error) LOG.warn(`Auto-purge gagal: ${error.message}`);
-      else if (count > 0) LOG.memory(`[Auto-Purge] Berhasil menghapus ${count} sesi usang (>30 hari).`);
     });
 }
 
-async function loadRelevantCrossTurns(currentSessionKey) {
-  const { data, error } = await supabase
-    .from('hermes_memory')
-    .select('session_key, summary, last_active')  // ← cukup summary saja
-    .neq('session_key', currentSessionKey)
-    .not('summary', 'is', null)
-    .order('last_active', { ascending: false })
-    .limit(3);
-  if (error || !data?.length) return [];
-  return data.map(r => ({ role: 'assistant', content: r.summary }));
+function archiveSummary(sessionKey, oldSummary) {
+  if (!oldSummary) return;
+  supabase.from('hermes_memory_archive')
+    .insert([{ session_key: sessionKey, summary: oldSummary }])
+    .then(({ error }) => {
+      if (error) LOG.err(`Gagal archive summary: ${error.message}`);
+      else LOG.memory(`Archived summary → session="${sessionKey.slice(0, 20)}"`);
+    });
 }
 
-function buildMemoryInjection(localData, crossTurns = []) {
+async function searchLongTermMemory(sessionKey, query, limit = 5) {
+  let q = supabase
+    .from('hermes_memory_archive')
+    .select('summary, created_at')
+    .eq('session_key', sessionKey)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (query) {
+    q = q.ilike('summary', `%${query}%`);
+  }
+
+  const { data, error } = await q;
+  if (error || !data?.length) return [];
+  return data.map(r => ({
+    content: `[${new Date(r.created_at).toLocaleDateString('id-ID')}] ${r.summary}`
+  }));
+}
+
+function buildMemoryInjection(localData, longTermEntries = []) {
   const parts = [];
-  if (localData?.summary) parts.push(`Ringkasan: ${localData.summary}`);
-  if (crossTurns.length > 0) {
-    parts.push(`Konteks sesi lain:\n${crossTurns.map(t => t.content).join(' | ')}`);
+  if (localData?.summary) parts.push(`Ringkasan sesi saat ini: ${localData.summary}`);
+  if (longTermEntries.length > 0) {
+    parts.push(`Riwayat sesi lama:\n${longTermEntries.map(t => t.content).join('\n')}`);
   }
   return parts.length
     ? `\n\n---\n[MEMORY CONTEXT - gunakan sebagai konteks internal, jangan diungkapkan ke user. Jika user bertanya "tadi" atau "sebelumnya", jawab berdasarkan ini.]\n${parts.join('\n\n')}\n[END MEMORY]\n---`
@@ -270,7 +285,9 @@ function sanitizeSchema(obj) {
 }
 
 // ============================================================
-// PAYLOAD TRANSFORMER — [FIX-1] tool_calls re-injected
+// 
+//  PAYLOAD TRANSFORMER AND GEMINI FALLBACK 
+//  
 // ============================================================
 function toGeminiPayload(body, reqId, memoryInjection) {
   const rawMessages = body.messages || [];
@@ -468,7 +485,9 @@ async function tryModelWithPool(body, model, startIndex, reqId, timeoutMs) {
 }
 
 // ============================================================
-// OPENROUTER INTEGRATION MODULE
+// 
+//  SESSION AND MOCK HANDLER FOR OPENAI RESPONSE
+// 
 // ============================================================
 function toOpenRouterPayload(body, model, memoryInjection) {
   const rawMessages = body.messages || [];
@@ -662,16 +681,27 @@ function buildOpenAIResponse(geminiRes, chunkId, model, stream, res, reqId) {
 
   const rawText = parts.map(p => p.text || '').join('').trimStart();
   const responseMatch = rawText.match(/<response>([\s\S]*?)<\/response>/i);
-  const summaryMatch  = rawText.match(/<summary>([\s\S]*?)<\/summary>/i);
-  const text    = responseMatch ? responseMatch[1].trim() : rawText;
-  const summary = summaryMatch  ? summaryMatch[1].trim()  : null;
+  const compactMatch  = rawText.match(/<compact>([\s\S]*?)<\/compact>/i);
+  let text       = responseMatch ? responseMatch[1].trim() : rawText;
+  const compact  = compactMatch  ? compactMatch[1].trim()  : null;
 
-  if (summary) {
-    LOG.memory(`[${reqId}] Inline summary parsed: "${summary.slice(0, 80)}"`);
-    res._inlineSummary = summary;
+  if (compact) {
+    LOG.memory(`[${reqId}] Compact parsed: "${compact}"`);
+    res._inlineCompact = compact;
+  }
+
+  // Fallback: tag bocor/tidak closed → strip manual
+  if (!responseMatch && /<response>|<\/response>|<compact>|<\/compact>/i.test(text)) {
+    LOG.warn(`[${reqId}] Tag <response>/<compact> bocor, fallback strip manual`);
+    text = text
+      .replace(/<\/?response>/gi, '')
+      .replace(/<compact>[\s\S]*$/i, '')
+      .replace(/<\/compact>/gi, '')
+      .trim();
   }
 
   LOG.out(`[${reqId}] → TEXT: ${text.length} chars | "${text.slice(0, 100).replace(/\n/g, ' ')}"`);
+
 
   if (stream) {
     if (!res.headersSent) {
@@ -709,7 +739,9 @@ function hashKey(str) {
 }
 
 // ============================================================
-// MAIN HANDLER — [FIX-2] expanded hasToolChain detection
+// 
+//    HANDLE CHAT FUNCTION INPUT AND OUTPUT HANDLER
+// 
 // ============================================================
 async function handleChat(req, res) {
   const body = req.body;
@@ -769,11 +801,11 @@ async function handleChat(req, res) {
 
   const lastUserMsg = String(messages.findLast(m => m.role === 'user')?.content || '');
   const isSemanticQuery = !isCronjob && SEMANTIC_TRIGGERS.test(lastUserMsg);
-  const crossTurns = isSemanticQuery ? await loadRelevantCrossTurns(sessionKey) : [];
+  const longTermEntries = isSemanticQuery ? await searchLongTermMemory(sessionKey, null, 5) : [];
 
-  if (isSemanticQuery) LOG.memory(`[${reqId}] Semantic trigger aktif → pull cross turns`);
+  if (isSemanticQuery) LOG.memory(`[${reqId}] Semantic trigger aktif → pull long-term memory (${longTermEntries.length} entries)`);
 
-  const memoryInjection = isCronjob ? '' : buildMemoryInjection(localMemory, crossTurns);
+  const memoryInjection = isCronjob ? '' : buildMemoryInjection(localMemory, longTermEntries);
 
   if (memoryInjection) LOG.memory(`[${reqId}] Memory injected (${memoryInjection.length} chars)`);
   else if (isCronjob) LOG.memory(`[${reqId}] Cronjob → skip memory`);
@@ -801,46 +833,41 @@ async function handleChat(req, res) {
 
     const HERMES_META_PATTERN = /<userRequest>|<environment_info>|<workspace_info>|<editorContext>|<attachments>|<context>|<reminderInstructions>/i;
 
-    // Parse inline summary DULU sebelum save memory
-    const rawAssistantText = geminiRes.candidates?.[0]?.content?.parts
-      ?.filter(p => p.text)?.map(p => p.text)?.join('') || '';
-    const responseMatch = rawAssistantText.match(/<response>([\s\S]*?)<\/response>/i);
-    const summaryMatch  = rawAssistantText.match(/<summary>([\s\S]*?)<\/summary>/i);
-    const inlineSummary = summaryMatch ? summaryMatch[1].trim() : null;
-    if (inlineSummary) LOG.memory(`[${reqId}] Inline summary parsed: "${inlineSummary.slice(0, 80)}"`);
-
     if (!isCronjob) {
+      const rawAssistantText = geminiRes.candidates?.[0]?.content?.parts
+        ?.filter(p => p.text)?.map(p => p.text)?.join('') || '';
+      const responseMatch = rawAssistantText.match(/<response>([\s\S]*?)<\/response>/i);
+      const compactMatch  = rawAssistantText.match(/<compact>([\s\S]*?)<\/compact>/i);
       const assistantText = responseMatch ? responseMatch[1].trim() : rawAssistantText;
+      const compact = compactMatch ? compactMatch[1].trim() : null;
+      if (compact) LOG.memory(`[${reqId}] Compact: "${compact}"`);
 
-      const allClientTurns = messages
-        .filter(m =>
-          (m.role === 'user' || (m.role === 'assistant' && m.content)) &&
-          m.content !== ERROR_MSG &&
-          !HERMES_META_PATTERN.test(m.content || '') &&
-          !(m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)
-        )
-        .map(m => ({ role: m.role, content: m.content, ts: m.created_at ? new Date(m.created_at).getTime() : Date.now() }));
+      const newTurns = [];
 
-      if (assistantText) {
-        allClientTurns.push({ role: 'assistant', content: assistantText, ts: Date.now() });
+      // User turn (truncate kalau kepanjangan)
+      if (lastUserMsg) {
+        const userContent = lastUserMsg.length > 200 ? lastUserMsg.slice(0, 200) + '...' : lastUserMsg;
+        newTurns.push({ role: 'user', content: userContent, ts: Date.now() });
+      }
+
+      // Assistant turn (pakai compact, fallback ke assistantText)
+      if (assistantText || compact) {
+        newTurns.push({ role: 'assistant', content: compact || assistantText, ts: Date.now() });
       }
 
       const previousTurns = Array.isArray(localMemory?.turns) ? localMemory.turns : [];
-      const combined = [...previousTurns, ...allClientTurns];
-      const seen = new Set();
-      const combinedTurns = combined.filter(t => {
-        const key = `${t.role}:${t.content}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-      LOG.memory(`[${reqId}] Turns: prev=${previousTurns.length} new=${allClientTurns.length} combined=${combinedTurns.length} → saving last 6`);
-      
-      let sessionSummary = inlineSummary || localMemory?.summary || null;
-      if (inlineSummary) LOG.memory(`[${reqId}] Session summary dari inline: "${inlineSummary.slice(0, 80)}"`);
+      let combinedTurns = [...previousTurns, ...newTurns];
+      let sessionSummary = localMemory?.summary || null;
 
-      if (!inlineSummary && allClientTurns.length >= MEMORY_CONFIG.summary_threshold && (!localMemory?.summary || allClientTurns.length % 3 === 0)) {
-        const summaryPrompt = `Buat ringkasan MAKSIMAL 8 kata (padat, tanpa subjek/kata sambung) dari percakapan ini:\n${allClientTurns.map(t => `${t.role}: ${t.content}`).join('\n')}`;
+      LOG.memory(`[${reqId}] Turns: prev=${previousTurns.length} new=${newTurns.length} combined=${combinedTurns.length}`);
+
+      // Threshold tercapai → generate summary kumulatif, archive yang lama, reset turns
+      if (combinedTurns.length >= MEMORY_CONFIG.summary_threshold) {
+        const summaryPrompt = `Ringkasan sebelumnya: ${sessionSummary || '(belum ada)'}
+          Percakapan baru:
+          ${combinedTurns.map(t => `${t.role}: ${t.content}`).join('\n')}
+
+          Buat SATU ringkasan baru yang menggabungkan ringkasan sebelumnya dengan percakapan baru ini. Maksimal 2-3 kalimat (sekitar 50-80 kata), fokus pada topik dan poin penting. Jangan sebut "ringkasan sebelumnya", langsung tulis hasil gabungannya.`; 
         try {
           const summaryBody = { messages: [{ role: 'user', content: summaryPrompt }], _memoryInjection: '' };
           summaryBody._cachedPayload = toGeminiPayload(summaryBody, reqId + '_sum', '');
@@ -848,14 +875,20 @@ async function handleChat(req, res) {
           const sumParts = sumRes?.candidates?.[0]?.content?.parts || [];
           const sumRaw = sumParts.map(p => p.text || '').join('').trim();
           const sumMatch = sumRaw.match(/<response>([\s\S]*?)<\/response>/i);
-          sessionSummary = sumMatch ? sumMatch[1].trim() : sumRaw;
-          LOG.memory(`[${reqId}] Session summary dibuat: "${sessionSummary.slice(0, 80)}"`);
+          const newSummary = sumMatch ? sumMatch[1].trim() : sumRaw;
+
+          if (newSummary) {
+            archiveSummary(sessionKey, sessionSummary); // simpan versi lama sebelum overwrite
+            sessionSummary = newSummary;
+            combinedTurns = []; // reset turns setelah summary terbuat
+            LOG.memory(`[${reqId}] Summary baru: "${newSummary.slice(0, 100)}" | turns direset`);
+          }
         } catch (e) {
-          LOG.warn(`[${reqId}] Gagal buat session summary: ${e.message}`);
+          LOG.warn(`[${reqId}] Gagal buat summary: ${e.message}`);
         }
       }
 
-      saveLocalMemory(sessionKey, combinedTurns.slice(-6), sessionSummary);
+      saveLocalMemory(sessionKey, combinedTurns.slice(-MEMORY_CONFIG.summary_threshold), sessionSummary);
     }
 
     LOG.win(`[${reqId}] ✅ Done — model=${usedModel} winner=tok#${winnerIdx} globalIndex→tok#${globalIndex}`);
@@ -935,40 +968,60 @@ app.use((req, res) => {
 });
 
 app.delete('/memory/all', async (req, res) => {
-  const { error } = await supabase.from('hermes_memory').delete().neq('session_key', '__never__');
+  const { error } = await supabase.from('hermes_sessions')
+    .update({ turns: [], summary: null })
+    .neq('session_key', '__never__');
   if (error) return res.status(500).json({ ok: false, error: error.message });
-  LOG.memory('Memory: semua sesi dihapus');
-  res.json({ ok: true, message: 'Semua memory sesi dihapus' });
+  LOG.memory('Memory: semua sesi direset');
+  res.json({ ok: true, message: 'Semua memory sesi direset' });
 });
 
 app.delete('/memory/today', async (req, res) => {
   const now = new Date();
   const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
   const today = wib.toISOString().slice(0, 10);
-  const { error, count } = await supabase.from('hermes_memory')
-    .delete()
+  const { error, count } = await supabase.from('hermes_sessions')
+    .update({ turns: [], summary: null })
     .gte('last_active', `${today}T00:00:00+07:00`)
     .lte('last_active', `${today}T23:59:59+07:00`);
   if (error) return res.status(500).json({ ok: false, error: error.message });
-  LOG.memory(`Memory: sesi hari ini dihapus (count=${count})`);
-  res.json({ ok: true, message: `Sesi hari ini (${today}) dihapus` });
-});
-
-app.delete('/memory/:sessionKey', async (req, res) => {
-  const { sessionKey } = req.params;
-  const { error } = await supabase.from('hermes_memory').delete().eq('session_key', sessionKey);
-  if (error) return res.status(500).json({ ok: false, error: error.message });
-  LOG.memory(`Memory: sesi "${sessionKey}" dihapus`);
-  res.json({ ok: true, message: `Sesi "${sessionKey}" dihapus` });
+  LOG.memory(`Memory: sesi hari ini direset (count=${count})`);
+  res.json({ ok: true, message: `Sesi hari ini (${today}) direset` });
 });
 
 app.get('/memory/list', async (req, res) => {
-  const { data, error } = await supabase.from('hermes_memory')
+  const { data, error } = await supabase.from('hermes_sessions')
     .select('session_key, summary, last_active')
     .order('last_active', { ascending: false })
     .limit(50);
   if (error) return res.status(500).json({ ok: false, error: error.message });
   res.json({ ok: true, sessions: data });
+});
+
+app.delete('/memory/:sessionKey', async (req, res) => {
+  const { sessionKey } = req.params;
+  const { error } = await supabase.from('hermes_sessions')
+    .update({ turns: [], summary: null })
+    .eq('session_key', sessionKey);
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  LOG.memory(`Memory: sesi "${sessionKey}" direset`);
+  res.json({ ok: true, message: `Sesi "${sessionKey}" direset` });
+});
+
+app.get('/memory/search', async (req, res) => {
+  const { q, from, to, session = 'sebastian' } = req.query;
+  let query = supabase.from('hermes_memory_archive')
+    .select('summary, created_at')
+    .eq('session_key', session)
+    .order('created_at', { ascending: false });
+
+  if (q) query = query.ilike('summary', `%${q}%`);
+  if (from) query = query.gte('created_at', from);
+  if (to) query = query.lte('created_at', to);
+
+  const { data, error } = await query.limit(50);
+  if (error) return res.status(500).json({ ok: false, error: error.message });
+  res.json({ ok: true, results: data });
 });
 
 app.listen(PORT, () => {

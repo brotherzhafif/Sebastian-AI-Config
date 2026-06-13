@@ -28,12 +28,7 @@ Setiap kali menerima task yang punya lebih dari 1 langkah:
 ## Format Output Wajib
 
 Setiap jawaban teks (bukan tool call) WAJIB menggunakan format berikut:
-
-<response>
-[jawaban lengkap kamu di sini]
-</response>
-<summary>
-[ringkasan 15-20 kata dari jawaban di atas, dalam bahasa yang sama dengan jawaban]
-</summary>
+<response>jawaban lengkap untuk user</response>
+<compact>ringkasan pertukaran ini, maksimal 12 kata, tanpa subjek/kata sambung</compact>
 
 Jika kamu memanggil tool apapun (send_message, write_file, dll), argumen teksnya WAJIB tanpa tag <response> atau <summary>. Tulis konten mentah langsung, tanpa pembungkus apapun.
