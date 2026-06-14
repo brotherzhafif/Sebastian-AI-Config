@@ -61,13 +61,6 @@ const OPENROUTER_CHAIN = [
   'nvidia/nemotron-3-ultra:free' // 4. Last resort
 ];
 
-const OPENROUTER_CHAIN = [
-  'qwen/qwen3-coder:free',       // 1. Paling stabil untuk Tool Call & Koding + Context jumbo
-  'poolside/laguna-m.1:free',    // 2. Terbukti 'WIN' di log kamu, cepat
-  'openai/gpt-oss-120b:free',    // 3. Backup format familiar
-  'nvidia/nemotron-3-ultra:free' // 4. Last resort
-];
-
 const MODEL_ALIASES = {
   'gemini-3-flash-live':  'gemini-flash-latest',
   'gemini-3.5-pro':       'gemini-2.5-flash',
