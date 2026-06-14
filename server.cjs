@@ -47,25 +47,25 @@ const supabase = createClient(
   }
 );
 
-const MODEL_FALLBACK_CHAIN = [
+const GEMINI_CHAIN = [
   'gemini-2.5-flash',
   'gemini-3.5-flash',
   'gemini-flash-latest',
   'gemini-3-flash-preview',
 ];
 
-const OPENROUTER_COPILOT_CHAIN = [
+const OPENROUTER_CHAIN = [
   'qwen/qwen3-coder:free',       // 1. Paling stabil untuk Tool Call & Koding + Context jumbo
   'poolside/laguna-m.1:free',    // 2. Terbukti 'WIN' di log kamu, cepat
   'openai/gpt-oss-120b:free',    // 3. Backup format familiar
   'nvidia/nemotron-3-ultra:free' // 4. Last resort
 ];
 
-const OPENROUTER_WHATSAPP_CHAIN = [
-  'meta-llama/llama-3.3-70b-instruct:free',  // Cepat, conversational
-  'google/gemma-4-31b-it:free',              // Ringan, responsif
-  'openai/gpt-oss-20b:free',                 // Backup ringan
-  'nvidia/nemotron-3-nano-30b-a3b:free',     // Last resort ringan
+const OPENROUTER_CHAIN = [
+  'qwen/qwen3-coder:free',       // 1. Paling stabil untuk Tool Call & Koding + Context jumbo
+  'poolside/laguna-m.1:free',    // 2. Terbukti 'WIN' di log kamu, cepat
+  'openai/gpt-oss-120b:free',    // 3. Backup format familiar
+  'nvidia/nemotron-3-ultra:free' // 4. Last resort
 ];
 
 const MODEL_ALIASES = {
@@ -655,6 +655,15 @@ function toOpenRouterPayload(body, model, memoryInjection, sessionKey, reqId) {
     payload.tools = body.tools;
   }
 
+  // Cap total payload size untuk OpenRouter
+  const payloadStr = JSON.stringify(payload);
+  if (payloadStr.length > 150_000) {
+    LOG.warn(`[${reqId || 'or'}] OpenRouter payload terlalu besar (${payloadStr.length} chars) → trim history`);
+    payload.messages = [
+      payload.messages[0], // system
+      ...payload.messages.slice(-4) // 4 pesan terakhir aja
+    ];
+  }
   return JSON.stringify(payload);
 }
 
@@ -746,7 +755,7 @@ async function callWithFallback(body, requestedModel, startIndex, reqId, timeout
   const isOpenRouterSession = sessionKey === 'copilot' || sessionKey === 'sebastian';
 
   if (isOpenRouterSession) {
-    const chain = sessionKey === 'copilot' ? OPENROUTER_COPILOT_CHAIN : OPENROUTER_WHATSAPP_CHAIN;
+    const chain = sessionKey === 'copilot' ? OPENROUTER_CHAIN : OPENROUTER_CHAIN;
     LOG.think(`[${reqId}] OpenRouter chain aktif untuk session: ${sessionKey} (${chain.length} models x ${OPENROUTER_TOKEN_POOL.length || 1} tokens)`);
     
     for (let i = 0; i < chain.length; i++) {
@@ -774,7 +783,7 @@ async function callWithFallback(body, requestedModel, startIndex, reqId, timeout
 
   // Gemini pool (default untuk sesi lain, atau last resort untuk copilot/whatsapp)
   const resolvedModel = resolveModel(requestedModel);
-  const modelQueue = [resolvedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== resolvedModel)];
+  const modelQueue = [resolvedModel, ...GEMINI_CHAIN.filter(m => m !== resolvedModel)];
   LOG.think(`[${reqId}] Gemini queue: ${modelQueue.join(' → ')}`);
 
   for (let i = 0; i < modelQueue.length; i++) {
@@ -1040,7 +1049,10 @@ async function handleChat(req, res) {
           const sumParts = sumRes?.candidates?.[0]?.content?.parts || [];
           const sumRaw = sumParts.map(p => p.text || '').join('').trim();
           const sumMatch = sumRaw.match(/<response>([\s\S]*?)<\/response>/i);
-          const newSummary = sumMatch ? sumMatch[1].trim() : sumRaw;
+          const newSummary = sumMatch ? sumMatch[1].trim() : sumRaw
+            .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .trim();
 
           if (newSummary) {
             archiveSummary(sessionKey, sessionSummary);
@@ -1087,9 +1099,9 @@ app.use('/dashboard', initDashboardRouter(supabase, process.env.SUPABASE_URL, pr
 const MODELS_LIST = {
   object: 'list',
   data: [
-    ...MODEL_FALLBACK_CHAIN,
-    ...OPENROUTER_COPILOT_CHAIN,
-    ...OPENROUTER_WHATSAPP_CHAIN,
+    ...GEMINI_CHAIN,
+    ...OPENROUTER_CHAIN,
+    ...OPENROUTER_CHAIN,
   ].map(id => ({ id, object: 'model', created: 1700000000, owned_by: 'google' }))
 };
 
@@ -1116,7 +1128,7 @@ app.get('/health', (req, res) => {
       PURGE_DAYS: MEMORY_CONFIG.purgeDays,
       OPENAI_MODEL: process.env.OPENAI_MODEL || 'default',
       GEMINI_MODEL: process.env.GEMINI_MODEL || 'default',
-      FALLBACK_MODELS: MODEL_FALLBACK_CHAIN.join(','),
+      FALLBACK_MODELS: GEMINI_CHAIN.join(','),
       LOG_LEVEL: process.env.LOG_LEVEL || 'info',
     }
   };
