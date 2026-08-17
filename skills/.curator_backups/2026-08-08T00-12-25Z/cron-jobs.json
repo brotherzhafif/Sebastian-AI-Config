@@ -1,0 +1,231 @@
+{
+  "jobs": [
+    {
+      "id": "c30e4dc7b203",
+      "name": "Daily Wisdom",
+      "prompt": "Berikan satu kutipan motivasi segar, strategi dari '48 Laws of Power', wawasan psikologis, prinsip stoicisme, atau pelajaran sejarah yang unik, baru, dan belum pernah disampaikan sebelumnya. Pastikan kutipannya berbeda dari \"Ketenangan sejati bukan tentang menghindari badai, melainkan belajar berlayar dalam badai. Fokus pada apa yang bisa kamu kendalikan: reaksimu terhadap situasi, bukan situasi itu sendiri. Inilah esensi Stoicisme untuk ketangguhan mental harian.\" atau \"Hadapilah tantangan hari ini dengan ketenangan. Fokuslah pada upaya dan tindakanmu, bukan pada hasil yang di luar kendalimu. Dalam penerimaan terdapat kekuatan sejati.\"",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": "http://localhost:9089/v1",
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 15 * * *",
+        "display": "0 15 * * *"
+      },
+      "schedule_display": "0 15 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 94
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-14T16:01:06.660356+07:00",
+      "next_run_at": "2026-08-08T15:00:00+07:00",
+      "last_run_at": "2026-08-07T15:00:07.187417+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Cron job 'c30e4dc7b203' blocked for safety: base_url override requires an explicit provider. Set provider to a configured custom provider to use a custom endpoint.",
+      "last_delivery_error": "delivery error: WhatsApp send failed: Cannot connect to host localhost:3000 ssl:default [Connect call failed ('127.0.0.1', 3000)]",
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null,
+      "fire_claim": null
+    },
+    {
+      "id": "c6da2108f662",
+      "name": "Pengingat Kerja BSI dan FX Media",
+      "prompt": "Tuan Zhafif, ini adalah pengingat harian Anda untuk segera melakukan:\n1. Kerja BSI - cek tugas harian dan deadline\n2. FX Media - cek postingan media sosial dan konten\n\nJangan lupa update progress kerja di Capstone Project juga!",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": "http://localhost:9089/v1",
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6 * * *",
+        "display": "0 6 * * *"
+      },
+      "schedule_display": "0 6 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 73
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-18T10:53:02.959780+07:00",
+      "next_run_at": "2026-08-09T06:00:00+07:00",
+      "last_run_at": "2026-08-08T06:00:14.805029+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Cron job 'c6da2108f662' blocked for safety: base_url override requires an explicit provider. Set provider to a configured custom provider to use a custom endpoint.",
+      "last_delivery_error": "delivery error: WhatsApp send failed: Cannot connect to host localhost:3000 ssl:default [Connect call failed ('127.0.0.1', 3000)]",
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null,
+      "fire_claim": null
+    },
+    {
+      "id": "ef10a2b80f35",
+      "name": "Fun Fact Malam Hari",
+      "prompt": "Berikan satu fun fact atau informasi menarik yang unik, baru, dan belum pernah disampaikan sebelumnya. Berikan dalam bahasa Indonesia.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": "http://localhost:9089/v1",
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 21 * * *",
+        "display": "0 21 * * *"
+      },
+      "schedule_display": "0 21 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 73
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-30T21:11:16.377186+07:00",
+      "next_run_at": "2026-08-08T21:00:00+07:00",
+      "last_run_at": "2026-08-07T21:00:10.308434+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Cron job 'ef10a2b80f35' blocked for safety: base_url override requires an explicit provider. Set provider to a configured custom provider to use a custom endpoint.",
+      "last_delivery_error": "delivery error: WhatsApp send failed: Cannot connect to host localhost:3000 ssl:default [Connect call failed ('127.0.0.1', 3000)]",
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null,
+      "fire_claim": null
+    },
+    {
+      "id": "2a84b82bdb7c",
+      "name": "daily-news-update",
+      "prompt": "Ambil beberapa berita utama dan ringkasan faktual, aktual, baru, dan nyata dari sumber terkemuka, lalu rangkum keseluruhan berita masing masing dalam beberapa poin singkat yang mudah dibaca. Pastikan untuk mencantumkan sumber berita.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": "http://localhost:9089/v1",
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 7 * * *",
+        "display": "0 7 * * *"
+      },
+      "schedule_display": "0 7 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 79
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-31T13:11:53.837144+07:00",
+      "next_run_at": "2026-08-09T07:00:00+07:00",
+      "last_run_at": "2026-08-08T07:00:15.277054+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Cron job '2a84b82bdb7c' blocked for safety: base_url override requires an explicit provider. Set provider to a configured custom provider to use a custom endpoint.",
+      "last_delivery_error": "delivery error: WhatsApp send failed: Cannot connect to host localhost:3000 ssl:default [Connect call failed ('127.0.0.1', 3000)]",
+      "deliver": "local,origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": [
+        "web",
+        "search"
+      ],
+      "workdir": null,
+      "fire_claim": null
+    },
+    {
+      "id": "da2ddbac8181",
+      "name": "Daily Conversation Summary",
+      "prompt": "Ringkas percakapan kemarin (YYYY-MM-DD kemarin) menggunakan global-memory-manager, lalu simpan ke ~/wiki/queries/conversation-{TODAY}.md via llm-wiki. Gunakan format frontmatter: title, date, tags. Update index.md dan log.md.",
+      "skills": [
+        "tool-chaining",
+        "global-memory-manager",
+        "llm-wiki"
+      ],
+      "skill": "tool-chaining",
+      "model": null,
+      "provider": null,
+      "base_url": "http://localhost:9089/v1",
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "59 23 * * *",
+        "display": "59 23 * * *"
+      },
+      "schedule_display": "59 23 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 59
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-14T02:30:28.102084+07:00",
+      "next_run_at": "2026-08-08T23:59:00+07:00",
+      "last_run_at": "2026-08-07T23:59:11.971555+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Cron job 'da2ddbac8181' blocked for safety: base_url override requires an explicit provider. Set provider to a configured custom provider to use a custom endpoint.",
+      "last_delivery_error": "delivery error: WhatsApp send failed: Cannot connect to host localhost:3000 ssl:default [Connect call failed ('127.0.0.1', 3000)]",
+      "deliver": "origin",
+      "origin": {
+        "platform": "whatsapp",
+        "chat_id": "70729588568201@lid",
+        "chat_name": "Raja Zhafif Raditya H.",
+        "thread_id": null
+      },
+      "enabled_toolsets": [
+        "terminal",
+        "file",
+        "skills"
+      ],
+      "workdir": null,
+      "fire_claim": null
+    }
+  ],
+  "updated_at": "2026-08-08T07:00:15.277562+07:00"
+}

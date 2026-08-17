@@ -17,4 +17,18 @@ This skill handles automated scheduling for Tuan Zhafif Raditya H.
 - Verify the `deliver` parameter. For Tuan Zhafif's personal notifications outside this chat, use the WhatsApp/Fonnte integration. For messages meant for this chat, use `origin`.
 - **Model Update Issue**: Jika pembaruan model pada cronjob gagal diterapkan, solusi terbaik adalah menghapus cronjob lama dan membuatnya ulang dengan model yang benar.
 - **'repeat' Parameter Pitfall**: Saat menjadwalkan job sekali jalan, hindari penggunaan parameter `repeat` secara eksplisit. Cukup gunakan format cron `0 H D M *` pada `schedule` untuk tanggal dan waktu spesifik, dan sistem akan menganggapnya sebagai satu kali eksekusi secara implisit. Menggunakan `repeat='once'` atau `repeat='forever'` secara eksplisit bersama `schedule` dapat menyebabkan konflik tipe data (`str` dan `int`).
-    - **Base URL untuk Cronjob**: Pastikan untuk menyertakan `baseurl: http://localhost:9089/v1` dalam konfigurasi cronjob jika diperlukan oleh agen atau skrip yang dijalankan.\n- **Pengingat Awal**: Untuk pengingat acara, selalu jadwalkan 30 menit lebih awal dari waktu yang ditentukan.\n
+    - **Base URL untuk Cronjob**: Pastikan untuk menyertakan `baseurl: http://localhost:9089/v1` dalam konfigurasi cronjob jika diperlukan oleh agen atau skrip yang dijalankan.
+- **Pengingat Awal**: Untuk pengingat acara, selalu jadwalkan 30 menit lebih awal dari waktu yang ditentukan.
+
+## Predefined / Standard Jobs
+
+### Daily Agenda Reminder (16:00)
+To create or restore the daily agenda check reminder:
+1. Run the creation command:
+   ```bash
+   hermes cron create "0 16 * * *"
+   ```
+2. When prompted or using `hermes cron edit <id>`, configure:
+   - **Prompt**: `Cek agenda harian jam 16:00 - pastikan tidak melewatkan tugas tanpa jam spesifik.`
+   - **Deliver**: `origin`
+   - **Base URL**: `http://localhost:9089/v1`

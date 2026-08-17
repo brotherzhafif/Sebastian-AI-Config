@@ -20,18 +20,18 @@
       "schedule_display": "0 15 * * *",
       "repeat": {
         "times": null,
-        "completed": 40
+        "completed": 104
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-14T16:01:06.660356+07:00",
-      "next_run_at": "2026-06-15T15:00:00+07:00",
-      "last_run_at": "2026-06-14T15:00:35.367515+07:00",
-      "last_status": "ok",
-      "last_error": null,
-      "last_delivery_error": null,
+      "next_run_at": "2026-08-18T15:00:00+07:00",
+      "last_run_at": "2026-08-17T15:00:01.665625+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Cron job 'c30e4dc7b203' blocked for safety: base_url override requires an explicit provider. Set provider to a configured custom provider to use a custom endpoint.",
+      "last_delivery_error": "delivery error: WhatsApp send failed: Cannot connect to host localhost:3000 ssl:default [Connect call failed ('127.0.0.1', 3000)]",
       "deliver": "origin",
       "origin": {
         "platform": "whatsapp",
@@ -40,12 +40,13 @@
         "thread_id": null
       },
       "enabled_toolsets": null,
-      "workdir": null
+      "workdir": null,
+      "fire_claim": null
     },
     {
       "id": "c6da2108f662",
-      "name": "Reminder Progress Capstone & Kerja BSI UAD",
-      "prompt": "Tuan Zhafif, ini adalah pengingat harian Anda untuk segera melakukan:\n1. Laporan progress Capstone Project\n2. Laporan progress Kerja BSI UAD.\n\n (Kirim pesan itu as is)",
+      "name": "Pengingat Kerja BSI dan FX Media",
+      "prompt": "Tuan Zhafif, ini adalah pengingat harian Anda untuk segera melakukan:\n1. Kerja BSI - cek tugas harian dan deadline\n2. FX Media - cek postingan media sosial dan konten\n\nJangan lupa update progress kerja di Capstone Project juga!",
       "skills": [],
       "skill": null,
       "model": null,
@@ -56,24 +57,24 @@
       "context_from": null,
       "schedule": {
         "kind": "cron",
-        "expr": "0 10 * * 1-5",
-        "display": "0 10 * * 1-5"
+        "expr": "0 6 * * *",
+        "display": "0 6 * * *"
       },
-      "schedule_display": "0 10 * * 1-5",
+      "schedule_display": "0 6 * * *",
       "repeat": {
         "times": null,
-        "completed": 26
+        "completed": 82
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-18T10:53:02.959780+07:00",
-      "next_run_at": "2026-06-15T10:00:00+07:00",
-      "last_run_at": "2026-06-12T10:01:03.606584+07:00",
-      "last_status": "ok",
-      "last_error": null,
-      "last_delivery_error": null,
+      "next_run_at": "2026-08-18T06:00:00+07:00",
+      "last_run_at": "2026-08-17T06:00:57.206366+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Cron job 'c6da2108f662' blocked for safety: base_url override requires an explicit provider. Set provider to a configured custom provider to use a custom endpoint.",
+      "last_delivery_error": "delivery error: WhatsApp send failed: Cannot connect to host localhost:3000 ssl:default [Connect call failed ('127.0.0.1', 3000)]",
       "deliver": "origin",
       "origin": {
         "platform": "whatsapp",
@@ -82,7 +83,8 @@
         "thread_id": null
       },
       "enabled_toolsets": null,
-      "workdir": null
+      "workdir": null,
+      "fire_claim": null
     },
     {
       "id": "ef10a2b80f35",
@@ -104,17 +106,17 @@
       "schedule_display": "0 21 * * *",
       "repeat": {
         "times": null,
-        "completed": 19
+        "completed": 83
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T21:11:16.377186+07:00",
-      "next_run_at": "2026-06-15T21:00:00+07:00",
-      "last_run_at": "2026-06-14T21:01:46.796864+07:00",
-      "last_status": "ok",
-      "last_error": null,
+      "next_run_at": "2026-08-18T21:00:00+07:00",
+      "last_run_at": "2026-08-17T21:00:40.469210+07:00",
+      "last_status": "error",
+      "last_error": "cannot import name 'CHECK_FN_CACHE_BYPASS' from 'tools.registry' (/home/ubuntu/.hermes/hermes-agent/tools/registry.py)",
       "last_delivery_error": null,
       "deliver": "origin",
       "origin": {
@@ -124,7 +126,8 @@
         "thread_id": null
       },
       "enabled_toolsets": null,
-      "workdir": null
+      "workdir": null,
+      "fire_claim": null
     },
     {
       "id": "2a84b82bdb7c",
@@ -146,18 +149,18 @@
       "schedule_display": "0 7 * * *",
       "repeat": {
         "times": null,
-        "completed": 24
+        "completed": 88
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-31T13:11:53.837144+07:00",
-      "next_run_at": "2026-06-15T07:00:00+07:00",
-      "last_run_at": "2026-06-14T07:00:28.226458+07:00",
-      "last_status": "ok",
-      "last_error": null,
-      "last_delivery_error": null,
+      "next_run_at": "2026-08-18T07:00:00+07:00",
+      "last_run_at": "2026-08-17T07:00:57.720069+07:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: Cron job '2a84b82bdb7c' blocked for safety: base_url override requires an explicit provider. Set provider to a configured custom provider to use a custom endpoint.",
+      "last_delivery_error": "delivery error: WhatsApp send failed: Cannot connect to host localhost:3000 ssl:default [Connect call failed ('127.0.0.1', 3000)]",
       "deliver": "local,origin",
       "origin": {
         "platform": "whatsapp",
@@ -169,17 +172,19 @@
         "web",
         "search"
       ],
-      "workdir": null
+      "workdir": null,
+      "fire_claim": null
     },
     {
       "id": "da2ddbac8181",
       "name": "Daily Conversation Summary",
-      "prompt": "1. Ambil semua ringkasan percakapan hari ini menggunakan curl ke `http://localhost:9089/memory/search?session=sebastian&from={TODAY}T00:00:00+07:00&to={TODAY}T23:59:59+07:00` (ganti {TODAY} dengan tanggal hari ini format YYYY-MM-DD).\n2. Gabungkan semua ringkasan tersebut menjadi satu summary harian yang padat dan reflektif.\n3. Simpan hasil summary ke `~/wiki/queries/conversation-{TODAY}.md` menggunakan skill 'llm-wiki' dengan frontmatter yang sesuai SCHEMA.md.\n4. Update `index.md` dan `log.md` melalui skill 'llm-wiki' untuk mencatat entri baru ini.\n5. Gunakan skill 'global-memory-manager' untuk memastikan pengambilan data memory archive dilakukan dengan benar.",
+      "prompt": "Ringkas percakapan kemarin (YYYY-MM-DD kemarin) menggunakan global-memory-manager, lalu simpan ke ~/wiki/queries/conversation-{TODAY}.md via llm-wiki. Gunakan format frontmatter: title, date, tags. Update index.md dan log.md.",
       "skills": [
+        "tool-chaining",
         "global-memory-manager",
         "llm-wiki"
       ],
-      "skill": "global-memory-manager",
+      "skill": "tool-chaining",
       "model": null,
       "provider": null,
       "base_url": "http://localhost:9089/v1",
@@ -194,17 +199,17 @@
       "schedule_display": "59 23 * * *",
       "repeat": {
         "times": null,
-        "completed": 2
+        "completed": 69
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-06-14T02:30:28.102084+07:00",
-      "next_run_at": "2026-06-15T23:59:00+07:00",
-      "last_run_at": "2026-06-15T00:13:50.163828+07:00",
-      "last_status": "ok",
-      "last_error": null,
+      "next_run_at": "2026-08-18T23:59:00+07:00",
+      "last_run_at": "2026-08-17T23:59:42.442846+07:00",
+      "last_status": "error",
+      "last_error": "cannot import name 'CHECK_FN_CACHE_BYPASS' from 'tools.registry' (/home/ubuntu/.hermes/hermes-agent/tools/registry.py)",
       "last_delivery_error": null,
       "deliver": "origin",
       "origin": {
@@ -218,8 +223,9 @@
         "file",
         "skills"
       ],
-      "workdir": null
+      "workdir": null,
+      "fire_claim": null
     }
   ],
-  "updated_at": "2026-06-15T00:13:50.164562+07:00"
+  "updated_at": "2026-08-17T23:59:42.443355+07:00"
 }

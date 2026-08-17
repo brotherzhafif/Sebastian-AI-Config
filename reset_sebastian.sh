@@ -26,7 +26,7 @@ if command -v sebastian &> /dev/null; then
   sleep 2
   hermes update
   cd ~/.hermes/hermes-agent
-  npm install
+  npm install --engine-strict=false
   sleep 2
   sebastian gateway start
   echo "✓ Sebastian Gateway aktif."
